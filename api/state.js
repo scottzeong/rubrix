@@ -7,7 +7,7 @@ function supabaseHeaders() {
     apikey: serviceRoleKey,
     Authorization: `Bearer ${serviceRoleKey}`,
     "Content-Type": "application/json",
-    Prefer: "return=representation",
+    Prefer: "resolution=merge-duplicates,return=representation",
   };
 }
 
