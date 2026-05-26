@@ -377,9 +377,22 @@ h2 {
   align-items: center;
   display: grid;
   gap: 6px;
-  grid-template-rows: 1fr auto auto;
+  grid-template-rows: 32px 180px auto;
   min-width: 0;
   text-align: center;
+}
+
+.histogram-label {
+  align-items: end;
+  color: #64748b;
+  display: flex;
+  font-size: 11px;
+  font-weight: 800;
+  justify-content: flex-end;
+  line-height: 1;
+  min-height: 32px;
+  padding-right: 2px;
+  white-space: nowrap;
 }
 
 .histogram-track {
@@ -405,11 +418,6 @@ h2 {
   font-size: 13px;
 }
 
-.histogram-bin span {
-  color: #64748b;
-  font-size: 11px;
-  writing-mode: vertical-rl;
-}
 
 .list-row,
 .select-row,

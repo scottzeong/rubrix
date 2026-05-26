@@ -848,11 +848,11 @@ function Dashboard({
         <div className="histogram">
           {scoreBins.map((bin) => (
             <div className="histogram-bin" key={bin.label}>
+              <div className="histogram-label">{bin.label}</div>
               <div className="histogram-track">
                 <div className="histogram-bar" style={{ height: bin.count === 0 ? "0%" : `${(bin.count / maxBinCount) * 100}%` }} />
               </div>
               <strong>{bin.count}</strong>
-              <span>{bin.label}</span>
             </div>
           ))}
         </div>
