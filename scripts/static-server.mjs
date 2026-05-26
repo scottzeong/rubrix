@@ -85,6 +85,7 @@ async function handleEvaluate(request, response) {
       body: JSON.stringify({
         model,
         input: prompt,
+        temperature: 0,
         text: {
           format: {
             type: "json_schema",
