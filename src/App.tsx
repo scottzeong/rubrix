@@ -635,7 +635,14 @@ export function App() {
           </div>
         </header>
 
-        {activeMenu === "dashboard" && <Dashboard stats={stats} evaluations={evaluations} />}
+        {activeMenu === "dashboard" && (
+          <Dashboard
+            stats={stats}
+            assignments={assignments}
+            submissions={submissions}
+            evaluations={evaluations}
+          />
+        )}
         {activeMenu === "rubrics" && (
           <RubricSets
             rubrics={rubrics}
@@ -724,7 +731,68 @@ function createStudentReport({
   ].join("\n");
 }
 
-function Dashboard({ stats, evaluations }: { stats: { label: string; value: number }[]; evaluations: Evaluation[] }) {
+function Dashboard({
+  stats,
+  assignments,
+  submissions,
+  evaluations,
+}: {
+  stats: { label: string; value: number }[];
+  assignments: Assignment[];
+  submissions: Submission[];
+  evaluations: Evaluation[];
+}) {
+  const latestEvaluatedSubmission = submissions.find((submission) => submission.id === evaluations[0]?.submissionId);
+  const defaultAssignmentId = latestEvaluatedSubmission?.assignmentId ?? assignments[0]?.id ?? "";
+  const [selectedStatsAssignmentId, setSelectedStatsAssignmentId] = useState(defaultAssignmentId);
+  const selectedStatsAssignment =
+    assignments.find((assignment) => assignment.id === selectedStatsAssignmentId) ?? assignments[0];
+  const selectedAssignmentEvaluations = evaluations.filter((evaluation) => {
+    const submission = submissions.find((item) => item.id === evaluation.submissionId);
+    return submission?.assignmentId === selectedStatsAssignment?.id;
+  });
+  const scoreBins = Array.from({ length: 20 }, (_, index) => {
+    const min = index * 5;
+    const max = index === 19 ? 100 : min + 4;
+    const count = selectedAssignmentEvaluations.filter(
+      (evaluation) => evaluation.totalScore >= min && evaluation.totalScore <= max
+    ).length;
+
+    return {
+      label: `${min}-${max}`,
+      count,
+    };
+  });
+  const maxBinCount = Math.max(1, ...scoreBins.map((bin) => bin.count));
+  const flowSteps = [
+    {
+      title: "Rubric Sets",
+      description: "평가항목과 기준을 설정해 주세요.",
+    },
+    {
+      title: "Assignments",
+      description: "과제의 유형과 내용을 설정해 주세요.",
+    },
+    {
+      title: "Submissions",
+      description: "제출물을 등록해 평가해 주세요.",
+    },
+    {
+      title: "Evaluations",
+      description: "AI평가결과를 확인하고 조정해 주세요.",
+    },
+    {
+      title: "Reports",
+      description: "피드백과 결과를 확인해 주세요.",
+    },
+  ];
+
+  useEffect(() => {
+    if (!selectedStatsAssignmentId && defaultAssignmentId) {
+      setSelectedStatsAssignmentId(defaultAssignmentId);
+    }
+  }, [defaultAssignmentId, selectedStatsAssignmentId]);
+
   return (
     <section className="content-grid">
       <div className="stat-grid">
@@ -738,22 +806,56 @@ function Dashboard({ stats, evaluations }: { stats: { label: string; value: numb
       <article className="panel wide">
         <h2>평가 흐름</h2>
         <div className="flow">
-          {["평가세트", "과제", "제출물", "AI 평가", "결과 보고"].map((step) => (
-            <div className="flow-step" key={step}>
-              {step}
+          {flowSteps.map((step) => (
+            <div className="flow-step" key={step.title}>
+              <strong>{step.title}</strong>
+              <span>{step.description}</span>
             </div>
           ))}
         </div>
       </article>
-      <article className="panel">
-        <h2>최근 평가 결과</h2>
-        {evaluations.length === 0 ? <p className="muted">아직 평가 결과가 없습니다.</p> : null}
-        {evaluations.slice(0, 4).map((evaluation) => (
-          <div className="list-row" key={evaluation.id}>
-            <span>{statusLabel(evaluation.status)}</span>
-            <strong>{evaluation.totalScore}점</strong>
+      <article className="panel wide">
+        <h2>과제리스트</h2>
+        {assignments.length === 0 ? <p className="muted">아직 등록된 과제가 없습니다.</p> : null}
+        <div className="assignment-stat-list">
+          {assignments.map((assignment) => {
+            const assignmentEvaluationCount = evaluations.filter((evaluation) => {
+              const submission = submissions.find((item) => item.id === evaluation.submissionId);
+              return submission?.assignmentId === assignment.id;
+            }).length;
+
+            return (
+              <div className="assignment-stat-row" key={assignment.id}>
+                <div>
+                  <strong>{assignment.title}</strong>
+                  <span>{assignmentEvaluationCount}명 평가됨</span>
+                </div>
+                <button className="secondary-button" onClick={() => setSelectedStatsAssignmentId(assignment.id)}>
+                  통계
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </article>
+      <article className="panel wide">
+        <div className="panel-title">
+          <div>
+            <h2>평가통계</h2>
+            <p className="muted">{selectedStatsAssignment?.title ?? "선택된 과제 없음"}</p>
           </div>
-        ))}
+        </div>
+        <div className="histogram">
+          {scoreBins.map((bin) => (
+            <div className="histogram-bin" key={bin.label}>
+              <div className="histogram-track">
+                <div className="histogram-bar" style={{ height: bin.count === 0 ? "0%" : `${(bin.count / maxBinCount) * 100}%` }} />
+              </div>
+              <strong>{bin.count}</strong>
+              <span>{bin.label}</span>
+            </div>
+          ))}
+        </div>
       </article>
     </section>
   );

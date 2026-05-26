@@ -322,9 +322,93 @@ h2 {
   border: 1px solid #bfdbfe;
   border-radius: 8px;
   color: #1e3a8a;
-  font-weight: 800;
+  display: grid;
+  gap: 8px;
   min-height: 74px;
   padding: 18px;
+}
+
+.flow-step strong {
+  color: #1e3a8a;
+  font-size: 15px;
+}
+
+.flow-step span {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.assignment-stat-list {
+  display: grid;
+  gap: 10px;
+}
+
+.assignment-stat-row {
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.assignment-stat-row strong,
+.assignment-stat-row span {
+  display: block;
+}
+
+.assignment-stat-row span {
+  color: #64748b;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.histogram {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(20, minmax(26px, 1fr));
+  min-height: 260px;
+}
+
+.histogram-bin {
+  align-items: center;
+  display: grid;
+  gap: 6px;
+  grid-template-rows: 1fr auto auto;
+  min-width: 0;
+  text-align: center;
+}
+
+.histogram-track {
+  align-items: end;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+  display: flex;
+  height: 180px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.histogram-bar {
+  background: #2563eb;
+  border-radius: 6px 6px 0 0;
+  min-height: 4px;
+  width: 100%;
+}
+
+.histogram-bin strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.histogram-bin span {
+  color: #64748b;
+  font-size: 11px;
+  writing-mode: vertical-rl;
 }
 
 .list-row,
