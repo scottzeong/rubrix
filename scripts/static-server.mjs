@@ -138,9 +138,97 @@ async function handleEvaluate(request, response) {
   }
 }
 
+function supabaseHeaders() {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  return {
+    apikey: serviceRoleKey,
+    Authorization: `Bearer ${serviceRoleKey}`,
+    "Content-Type": "application/json",
+    Prefer: "return=representation",
+  };
+}
+
+function hasSupabaseConfig() {
+  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+async function handleState(request, response) {
+  if (!hasSupabaseConfig()) {
+    sendJson(response, 500, {
+      error: "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables are required.",
+    });
+    return;
+  }
+
+  const endpoint = `${process.env.SUPABASE_URL}/rest/v1/app_state`;
+  const stateId = "default";
+
+  try {
+    if (request.method === "GET") {
+      const supabaseResponse = await fetch(`${endpoint}?id=eq.${stateId}&select=data`, {
+        headers: supabaseHeaders(),
+      });
+      const payload = await supabaseResponse.json();
+
+      if (!supabaseResponse.ok) {
+        sendJson(response, supabaseResponse.status, {
+          error: payload.message || "Failed to load app state.",
+        });
+        return;
+      }
+
+      sendJson(response, 200, { data: payload[0]?.data ?? null });
+      return;
+    }
+
+    if (request.method === "POST") {
+      const body = await readJsonBody(request);
+      const data = body.data;
+
+      if (!data || typeof data !== "object") {
+        sendJson(response, 400, { error: "data object is required." });
+        return;
+      }
+
+      const supabaseResponse = await fetch(`${endpoint}?on_conflict=id`, {
+        method: "POST",
+        headers: supabaseHeaders(),
+        body: JSON.stringify({
+          id: stateId,
+          data,
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      const payload = await supabaseResponse.json();
+
+      if (!supabaseResponse.ok) {
+        sendJson(response, supabaseResponse.status, {
+          error: payload.message || "Failed to save app state.",
+        });
+        return;
+      }
+
+      sendJson(response, 200, { data: payload[0]?.data ?? data });
+      return;
+    }
+
+    sendJson(response, 405, { error: "Method not allowed." });
+  } catch (error) {
+    sendJson(response, 500, {
+      error: error instanceof Error ? error.message : "Unexpected state storage error.",
+    });
+  }
+}
+
 createServer(async (request, response) => {
   if (request.method === "POST" && request.url?.startsWith("/api/evaluate")) {
     await handleEvaluate(request, response);
+    return;
+  }
+
+  if (request.url?.startsWith("/api/state")) {
+    await handleState(request, response);
     return;
   }
 

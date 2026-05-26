@@ -11,7 +11,7 @@ import {
   Square,
   Upload,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type MenuKey =
   | "dashboard"
@@ -290,7 +290,89 @@ export function App() {
   const [selectedRubricId, setSelectedRubricId] = useState(seedRubric.id);
   const [aiModel, setAiModel] = useState("gpt-5.4-mini");
   const [evaluatingSubmissionIds, setEvaluatingSubmissionIds] = useState<string[]>([]);
+  const [isStateLoaded, setIsStateLoaded] = useState(false);
+  const [storageStatus, setStorageStatus] = useState("저장소 연결 확인 중");
   const selectedRubric = rubrics.find((rubric) => rubric.id === selectedRubricId) ?? rubrics[0];
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadState() {
+      try {
+        const response = await fetch("/api/state");
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "저장된 데이터를 불러오지 못했습니다.");
+        }
+
+        if (payload.data && isMounted) {
+          setRubrics(payload.data.rubrics ?? [seedRubric]);
+          setAssignments(payload.data.assignments ?? initialAssignments);
+          setTaskTypes(payload.data.taskTypes ?? initialTaskTypes);
+          setSubmissions(payload.data.submissions ?? []);
+          setEvaluations(payload.data.evaluations ?? []);
+          setSelectedRubricId(payload.data.selectedRubricId ?? seedRubric.id);
+          setAiModel(payload.data.aiModel ?? "gpt-5.4-mini");
+        }
+
+        if (isMounted) {
+          setStorageStatus("Supabase 저장소 연결됨");
+        }
+      } catch (error) {
+        if (isMounted) {
+          setStorageStatus(
+            `Supabase 저장소 미연결: ${error instanceof Error ? error.message : "알 수 없는 오류"}`
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsStateLoaded(true);
+        }
+      }
+    }
+
+    loadState();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isStateLoaded) return;
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            data: {
+              rubrics,
+              assignments,
+              taskTypes,
+              submissions,
+              evaluations,
+              selectedRubricId,
+              aiModel,
+            },
+          }),
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "데이터 저장에 실패했습니다.");
+        }
+
+        setStorageStatus("저장됨");
+      } catch (error) {
+        setStorageStatus(`저장 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+      }
+    }, 600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [aiModel, assignments, evaluations, isStateLoaded, rubrics, selectedRubricId, submissions, taskTypes]);
 
   const stats = useMemo(
     () => [
@@ -549,7 +631,7 @@ export function App() {
           </div>
           <div className="status-pill">
             <CheckCircle2 size={16} />
-            단일 평가자 모드
+            {storageStatus}
           </div>
         </header>
 
