@@ -12,6 +12,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import rubrixLogo from "./assets/rubrix.png";
 
 type MenuKey =
   | "dashboard"
@@ -601,7 +602,7 @@ export function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">RE</div>
+          <img className="brand-mark" src={rubrixLogo} alt="Rubrix" />
           <div>
             <strong>Rubrix</strong>
             <span>AI Rubric System</span>
@@ -815,6 +816,25 @@ function Dashboard({
         </div>
       </article>
       <article className="panel wide">
+        <div className="panel-title">
+          <div>
+            <h2>평가통계</h2>
+            <p className="muted">{selectedStatsAssignment?.title ?? "선택된 과제 없음"}</p>
+          </div>
+        </div>
+        <div className="histogram">
+          {scoreBins.map((bin) => (
+            <div className="histogram-bin" key={bin.label}>
+              <div className="histogram-label">{bin.label}</div>
+              <div className="histogram-track">
+                <div className="histogram-bar" style={{ height: bin.count === 0 ? "0%" : `${(bin.count / maxBinCount) * 100}%` }} />
+              </div>
+              <strong>{bin.count}</strong>
+            </div>
+          ))}
+        </div>
+      </article>
+      <article className="panel wide">
         <h2>과제리스트</h2>
         {assignments.length === 0 ? <p className="muted">아직 등록된 과제가 없습니다.</p> : null}
         <div className="assignment-stat-list">
@@ -836,25 +856,6 @@ function Dashboard({
               </div>
             );
           })}
-        </div>
-      </article>
-      <article className="panel wide">
-        <div className="panel-title">
-          <div>
-            <h2>평가통계</h2>
-            <p className="muted">{selectedStatsAssignment?.title ?? "선택된 과제 없음"}</p>
-          </div>
-        </div>
-        <div className="histogram">
-          {scoreBins.map((bin) => (
-            <div className="histogram-bin" key={bin.label}>
-              <div className="histogram-label">{bin.label}</div>
-              <div className="histogram-track">
-                <div className="histogram-bar" style={{ height: bin.count === 0 ? "0%" : `${(bin.count / maxBinCount) * 100}%` }} />
-              </div>
-              <strong>{bin.count}</strong>
-            </div>
-          ))}
         </div>
       </article>
     </section>
