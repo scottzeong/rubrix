@@ -482,6 +482,7 @@ h2 {
 .category-head {
   align-items: center;
   display: flex;
+  gap: 12px;
   justify-content: space-between;
   margin-bottom: 10px;
 }
@@ -489,6 +490,64 @@ h2 {
 .category-head span {
   color: #2563eb;
   font-weight: 800;
+}
+
+.score-balance {
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+}
+
+.score-balance strong,
+.score-balance span,
+.score-balance p {
+  margin: 0;
+}
+
+.score-balance strong {
+  font-size: 15px;
+}
+
+.score-balance span,
+.score-balance p {
+  font-size: 13px;
+}
+
+.score-balance.balanced {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+}
+
+.score-balance.warning {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+}
+
+.score-input {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.score-input input {
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  color: #1e3a8a;
+  font-weight: 900;
+  min-height: 34px;
+  padding: 6px 8px;
+  text-align: right;
+  width: 72px;
+}
+
+.score-input span {
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .check-row {

@@ -1176,6 +1176,25 @@ function RubricSets({
     setIsAddingRubric(false);
   }
 
+  function updateCategoryScore(categoryId: string, value: string) {
+    const nextScore = Math.max(0, Math.min(100, Number(value) || 0));
+    updateRubric({
+      ...selectedRubric,
+      categories: selectedRubric.categories.map((categoryItem) =>
+        categoryItem.id === categoryId ? { ...categoryItem, maxScore: nextScore } : categoryItem
+      ),
+    });
+  }
+
+  const totalScore = selectedRubric.categories.reduce((total, categoryItem) => total + categoryItem.maxScore, 0);
+  const commonScore = selectedRubric.categories
+    .filter((categoryItem) => categoryItem.type === "common")
+    .reduce((total, categoryItem) => total + categoryItem.maxScore, 0);
+  const taskScore = selectedRubric.categories
+    .filter((categoryItem) => categoryItem.type === "task")
+    .reduce((total, categoryItem) => total + categoryItem.maxScore, 0);
+  const isScoreBalanced = totalScore === 100;
+
   return (
     <section className="two-column">
       <article className="panel">
@@ -1233,6 +1252,11 @@ function RubricSets({
             <p className="muted">공통 평가 80점 + 과제유형별 추가 평가 20점</p>
           </div>
         </div>
+        <div className={isScoreBalanced ? "score-balance balanced" : "score-balance warning"}>
+          <strong>배점 합계 {totalScore}/100</strong>
+          <span>공통 기준 {commonScore}점 · 과제유형별 추가 평가 {taskScore}점</span>
+          {!isScoreBalanced ? <p>전체 배점 합계가 100점이 되도록 조정해 주세요.</p> : null}
+        </div>
         <div className="form-grid compact-form">
           <label className="field">
             <span>평가세트 이름</span>
@@ -1254,7 +1278,16 @@ function RubricSets({
             <div className="category-box" key={categoryItem.id}>
               <div className="category-head">
                 <strong>{categoryItem.name}</strong>
-                <span>{categoryItem.maxScore}점</span>
+                <label className="score-input">
+                  <input
+                    min="0"
+                    max="100"
+                    type="number"
+                    value={categoryItem.maxScore}
+                    onChange={(event) => updateCategoryScore(categoryItem.id, event.target.value)}
+                  />
+                  <span>점</span>
+                </label>
               </div>
               {categoryItem.criteria.map((criterionItem) => (
                 <label className="check-row" key={criterionItem.id}>
