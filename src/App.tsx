@@ -1871,6 +1871,7 @@ function Analysis({
   const selectedPair = analysis?.pairs.find((pair) => pair.id === selectedPairId) ?? analysis?.pairs[0];
   const selectedLeft = submissions.find((submission) => submission.id === selectedPair?.submissionAId);
   const selectedRight = submissions.find((submission) => submission.id === selectedPair?.submissionBId);
+  const analysisModes = analysis?.modes ?? [];
 
   useEffect(() => {
     if (!selectedAssignmentId && assignments[0]?.id) {
@@ -1930,6 +1931,10 @@ function Analysis({
             <strong>{analysis ? new Date(analysis.createdAt).toLocaleString("ko-KR") : "없음"}</strong>
           </div>
         </div>
+          <div className="analysis-summary-card">
+            <span>사용 기준</span>
+            <strong>{analysis ? analysis.modes.map((mode) => similarityModeLabels[mode]).join(", ") : "없음"}</strong>
+          </div>
         <div className="similarity-mode-grid">
           {(Object.keys(similarityModeLabels) as SimilarityMode[]).map((mode) => (
             <label className="similarity-mode" key={mode}>
@@ -1993,19 +1998,19 @@ function Analysis({
               </div>
               <div>
                 <span>문장 일치</span>
-                <strong>{selectedPair.exactScore}%</strong>
+                <strong>{analysisModes.includes("exact") ? `${selectedPair.exactScore}%` : "제외"}</strong>
               </div>
               <div>
                 <span>문장 유사</span>
-                <strong>{selectedPair.sentenceScore}%</strong>
+                <strong>{analysisModes.includes("sentence") ? `${selectedPair.sentenceScore}%` : "제외"}</strong>
               </div>
               <div>
                 <span>문단 유사</span>
-                <strong>{selectedPair.paragraphScore}%</strong>
+                <strong>{analysisModes.includes("paragraph") ? `${selectedPair.paragraphScore}%` : "제외"}</strong>
               </div>
               <div>
                 <span>구조 유사</span>
-                <strong>{selectedPair.structureScore}%</strong>
+                <strong>{analysisModes.includes("structure") ? `${selectedPair.structureScore}%` : "제외"}</strong>
               </div>
             </div>
             <section className="report-detail-section">
