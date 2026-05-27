@@ -6,6 +6,7 @@ import {
   FileText,
   LayoutDashboard,
   Plus,
+  SearchCheck,
   Settings,
   Sparkles,
   Square,
@@ -20,6 +21,7 @@ type MenuKey =
   | "assignments"
   | "submissions"
   | "evaluations"
+  | "analysis"
   | "reports"
   | "settings";
 
@@ -76,6 +78,29 @@ type Evaluation = {
   feedback: string;
   studentReport: string;
   prompt: string;
+};
+
+type SimilarityMode = "exact" | "sentence" | "paragraph" | "structure";
+
+type SimilarityPair = {
+  id: string;
+  submissionAId: string;
+  submissionBId: string;
+  score: number;
+  exactScore: number;
+  sentenceScore: number;
+  paragraphScore: number;
+  structureScore: number;
+  matchedPhrases: string[];
+};
+
+type SimilarityAnalysis = {
+  id: string;
+  assignmentId: string;
+  createdAt: string;
+  modes: SimilarityMode[];
+  submissionCount: number;
+  pairs: SimilarityPair[];
 };
 
 type TaskType = {
@@ -273,12 +298,151 @@ const menu = [
   { key: "assignments", label: "Assignments", icon: ClipboardCheck },
   { key: "submissions", label: "Submissions", icon: Upload },
   { key: "evaluations", label: "Evaluations", icon: Sparkles },
+  { key: "analysis", label: "Analysis", icon: SearchCheck },
   { key: "reports", label: "Reports", icon: BarChart3 },
   { key: "settings", label: "Settings", icon: Settings },
 ] satisfies { key: MenuKey; label: string; icon: typeof LayoutDashboard }[];
 
 function statusLabel(status: Evaluation["status"]) {
   return status === "finalized" ? "최종 확정" : "AI 평가 완료";
+}
+
+function normalizeText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s.?!。！？\n]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenize(value: string) {
+  return normalizeText(value)
+    .split(/\s+/)
+    .filter((token) => token.length > 1);
+}
+
+function splitSentences(value: string) {
+  return value
+    .split(/(?<=[.!?。！？])\s+|\n+/u)
+    .map((item) => normalizeText(item))
+    .filter((item) => item.length >= 18);
+}
+
+function splitParagraphs(value: string) {
+  return value
+    .split(/\n\s*\n+/)
+    .map((item) => normalizeText(item))
+    .filter((item) => item.length >= 35);
+}
+
+function jaccardSimilarity(left: string[], right: string[]) {
+  if (left.length === 0 || right.length === 0) return 0;
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  const intersection = [...leftSet].filter((token) => rightSet.has(token)).length;
+  const union = new Set([...leftSet, ...rightSet]).size;
+  return union === 0 ? 0 : intersection / union;
+}
+
+function averageBestSimilarity(left: string[], right: string[]) {
+  if (left.length === 0 || right.length === 0) return 0;
+
+  const bestFromLeft = left.map((leftItem) =>
+    Math.max(...right.map((rightItem) => jaccardSimilarity(tokenize(leftItem), tokenize(rightItem))))
+  );
+  const bestFromRight = right.map((rightItem) =>
+    Math.max(...left.map((leftItem) => jaccardSimilarity(tokenize(rightItem), tokenize(leftItem))))
+  );
+  const scores = [...bestFromLeft, ...bestFromRight];
+  return scores.reduce((total, score) => total + score, 0) / scores.length;
+}
+
+function exactSimilarity(leftSentences: string[], rightSentences: string[]) {
+  if (leftSentences.length === 0 || rightSentences.length === 0) {
+    return { score: 0, matches: [] as string[] };
+  }
+  const rightSet = new Set(rightSentences);
+  const matches = [...new Set(leftSentences.filter((sentence) => rightSet.has(sentence)))].slice(0, 5);
+  const denominator = Math.max(1, Math.min(leftSentences.length, rightSentences.length));
+  return { score: matches.length / denominator, matches };
+}
+
+function structureSignature(value: string) {
+  const paragraphs = splitParagraphs(value);
+  const source = paragraphs.length > 0 ? paragraphs : splitSentences(value);
+  return source.map((item) => {
+    const tokenCount = tokenize(item).length;
+    if (tokenCount <= 25) return "short";
+    if (tokenCount <= 70) return "medium";
+    return "long";
+  });
+}
+
+function sequenceSimilarity(left: string[], right: string[]) {
+  if (left.length === 0 || right.length === 0) return 0;
+  const rows = Array.from({ length: left.length + 1 }, () => Array(right.length + 1).fill(0));
+  for (let row = 1; row <= left.length; row += 1) {
+    for (let column = 1; column <= right.length; column += 1) {
+      rows[row][column] =
+        left[row - 1] === right[column - 1]
+          ? rows[row - 1][column - 1] + 1
+          : Math.max(rows[row - 1][column], rows[row][column - 1]);
+    }
+  }
+  return rows[left.length][right.length] / Math.max(left.length, right.length);
+}
+
+function analyzeSubmissionSimilarity(
+  assignmentId: string,
+  modes: SimilarityMode[],
+  submissions: Submission[]
+): SimilarityAnalysis {
+  const targetSubmissions = submissions.filter((submission) => submission.assignmentId === assignmentId);
+  const pairs: SimilarityPair[] = [];
+
+  for (let leftIndex = 0; leftIndex < targetSubmissions.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < targetSubmissions.length; rightIndex += 1) {
+      const left = targetSubmissions[leftIndex];
+      const right = targetSubmissions[rightIndex];
+      const leftSentences = splitSentences(left.reportText);
+      const rightSentences = splitSentences(right.reportText);
+      const exact = exactSimilarity(leftSentences, rightSentences);
+      const sentenceScore = averageBestSimilarity(leftSentences, rightSentences);
+      const paragraphScore = averageBestSimilarity(splitParagraphs(left.reportText), splitParagraphs(right.reportText));
+      const structureScore = sequenceSimilarity(structureSignature(left.reportText), structureSignature(right.reportText));
+      const activeScores = modes.map((mode) => {
+        if (mode === "exact") return exact.score;
+        if (mode === "sentence") return sentenceScore;
+        if (mode === "paragraph") return paragraphScore;
+        return structureScore;
+      });
+      const score =
+        activeScores.length === 0
+          ? 0
+          : activeScores.reduce((total, item) => total + item, 0) / activeScores.length;
+
+      pairs.push({
+        id: `${left.id}-${right.id}`,
+        submissionAId: left.id,
+        submissionBId: right.id,
+        score: Math.round(score * 100),
+        exactScore: Math.round(exact.score * 100),
+        sentenceScore: Math.round(sentenceScore * 100),
+        paragraphScore: Math.round(paragraphScore * 100),
+        structureScore: Math.round(structureScore * 100),
+        matchedPhrases: exact.matches,
+      });
+    }
+  }
+
+  return {
+    id: crypto.randomUUID(),
+    assignmentId,
+    createdAt: new Date().toISOString(),
+    modes,
+    submissionCount: targetSubmissions.length,
+    pairs: pairs.sort((left, right) => right.score - left.score).slice(0, 100),
+  };
 }
 
 export function App() {
@@ -288,6 +452,7 @@ export function App() {
   const [taskTypes, setTaskTypes] = useState<TaskType[]>(initialTaskTypes);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
+  const [similarityAnalyses, setSimilarityAnalyses] = useState<SimilarityAnalysis[]>([]);
   const [selectedRubricId, setSelectedRubricId] = useState(seedRubric.id);
   const [aiModel, setAiModel] = useState("gpt-5.4-mini");
   const [evaluatingSubmissionIds, setEvaluatingSubmissionIds] = useState<string[]>([]);
@@ -313,6 +478,7 @@ export function App() {
           setTaskTypes(payload.data.taskTypes ?? initialTaskTypes);
           setSubmissions(payload.data.submissions ?? []);
           setEvaluations(payload.data.evaluations ?? []);
+          setSimilarityAnalyses(payload.data.similarityAnalyses ?? []);
           setSelectedRubricId(payload.data.selectedRubricId ?? seedRubric.id);
           setAiModel(payload.data.aiModel ?? "gpt-5.4-mini");
         }
@@ -355,6 +521,7 @@ export function App() {
               taskTypes,
               submissions,
               evaluations,
+              similarityAnalyses,
               selectedRubricId,
               aiModel,
             },
@@ -373,7 +540,17 @@ export function App() {
     }, 600);
 
     return () => window.clearTimeout(timeoutId);
-  }, [aiModel, assignments, evaluations, isStateLoaded, rubrics, selectedRubricId, submissions, taskTypes]);
+  }, [
+    aiModel,
+    assignments,
+    evaluations,
+    isStateLoaded,
+    rubrics,
+    selectedRubricId,
+    similarityAnalyses,
+    submissions,
+    taskTypes,
+  ]);
 
   const stats = useMemo(
     () => [
@@ -443,12 +620,21 @@ export function App() {
   function deleteAssignment(assignmentId: string) {
     if (!window.confirm("이 과제를 삭제할까요?")) return;
     setAssignments((current) => current.filter((assignment) => assignment.id !== assignmentId));
+    setSimilarityAnalyses((current) => current.filter((analysis) => analysis.assignmentId !== assignmentId));
   }
 
   function deleteSubmission(submissionId: string) {
     if (!window.confirm("이 제출물을 삭제할까요? 연결된 평가결과도 함께 삭제됩니다.")) return;
     setSubmissions((current) => current.filter((submission) => submission.id !== submissionId));
     setEvaluations((current) => current.filter((evaluation) => evaluation.submissionId !== submissionId));
+    setSimilarityAnalyses((current) =>
+      current.map((analysis) => ({
+        ...analysis,
+        pairs: analysis.pairs.filter(
+          (pair) => pair.submissionAId !== submissionId && pair.submissionBId !== submissionId
+        ),
+      }))
+    );
   }
 
   function addSubmission(inputType: "pdf" | "text", values: {
@@ -598,6 +784,14 @@ export function App() {
     );
   }
 
+  function runSimilarityAnalysis(assignmentId: string, modes: SimilarityMode[]) {
+    const analysis = analyzeSubmissionSimilarity(assignmentId, modes, submissions);
+    setSimilarityAnalyses((current) => [
+      analysis,
+      ...current.filter((item) => item.assignmentId !== assignmentId),
+    ]);
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -682,6 +876,14 @@ export function App() {
             submissions={submissions}
             finalizeEvaluation={finalizeEvaluation}
             updateEvaluations={setEvaluations}
+          />
+        )}
+        {activeMenu === "analysis" && (
+          <Analysis
+            analyses={similarityAnalyses}
+            assignments={assignments}
+            submissions={submissions}
+            runSimilarityAnalysis={runSimilarityAnalysis}
           />
         )}
         {activeMenu === "reports" && (
@@ -1607,6 +1809,213 @@ function Evaluations({
         })}
       </div>
     </article>
+  );
+}
+
+const similarityModeLabels: Record<SimilarityMode, string> = {
+  exact: "Exact Match",
+  sentence: "Sentence Similarity",
+  paragraph: "Paragraph Similarity",
+  structure: "Structure Similarity",
+};
+
+function similarityRiskLabel(score: number) {
+  if (score >= 70) return "강한 검토 필요";
+  if (score >= 50) return "검토 필요";
+  if (score >= 30) return "참고 확인";
+  return "낮음";
+}
+
+function Analysis({
+  analyses,
+  assignments,
+  submissions,
+  runSimilarityAnalysis,
+}: {
+  analyses: SimilarityAnalysis[];
+  assignments: Assignment[];
+  submissions: Submission[];
+  runSimilarityAnalysis: (assignmentId: string, modes: SimilarityMode[]) => void;
+}) {
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState(assignments[0]?.id ?? "");
+  const [selectedModes, setSelectedModes] = useState<SimilarityMode[]>([
+    "exact",
+    "sentence",
+    "paragraph",
+    "structure",
+  ]);
+  const selectedAssignment = assignments.find((assignment) => assignment.id === selectedAssignmentId) ?? assignments[0];
+  const assignmentSubmissions = submissions.filter((submission) => submission.assignmentId === selectedAssignment?.id);
+  const analysis = analyses.find((item) => item.assignmentId === selectedAssignment?.id);
+  const [selectedPairId, setSelectedPairId] = useState(analysis?.pairs[0]?.id ?? "");
+  const selectedPair = analysis?.pairs.find((pair) => pair.id === selectedPairId) ?? analysis?.pairs[0];
+  const selectedLeft = submissions.find((submission) => submission.id === selectedPair?.submissionAId);
+  const selectedRight = submissions.find((submission) => submission.id === selectedPair?.submissionBId);
+
+  useEffect(() => {
+    if (!selectedAssignmentId && assignments[0]?.id) {
+      setSelectedAssignmentId(assignments[0].id);
+    }
+  }, [assignments, selectedAssignmentId]);
+
+  useEffect(() => {
+    setSelectedPairId(analysis?.pairs[0]?.id ?? "");
+  }, [analysis?.id]);
+
+  function toggleMode(mode: SimilarityMode) {
+    setSelectedModes((current) =>
+      current.includes(mode) ? current.filter((item) => item !== mode) : [...current, mode]
+    );
+  }
+
+  function runAnalysis() {
+    if (!selectedAssignment || selectedModes.length === 0 || assignmentSubmissions.length < 2) return;
+    runSimilarityAnalysis(selectedAssignment.id, selectedModes);
+  }
+
+  return (
+    <section className="analysis-layout">
+      <article className="panel analysis-control-panel">
+        <div className="panel-title">
+          <div>
+            <h2>유사도 분석</h2>
+            <p className="muted">같은 과제의 제출물을 서로 비교합니다.</p>
+          </div>
+          <button
+            className="primary-button"
+            disabled={assignmentSubmissions.length < 2 || selectedModes.length === 0}
+            onClick={runAnalysis}
+          >
+            <SearchCheck size={16} />
+            분석 실행
+          </button>
+        </div>
+        <div className="form-grid compact-form">
+          <label className="field">
+            <span>과제</span>
+            <select value={selectedAssignment?.id ?? ""} onChange={(event) => setSelectedAssignmentId(event.target.value)}>
+              {assignments.map((assignment) => (
+                <option key={assignment.id} value={assignment.id}>
+                  {assignment.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="analysis-summary-card">
+            <span>제출물</span>
+            <strong>{assignmentSubmissions.length}개</strong>
+          </div>
+          <div className="analysis-summary-card">
+            <span>최근 분석</span>
+            <strong>{analysis ? new Date(analysis.createdAt).toLocaleString("ko-KR") : "없음"}</strong>
+          </div>
+        </div>
+        <div className="similarity-mode-grid">
+          {(Object.keys(similarityModeLabels) as SimilarityMode[]).map((mode) => (
+            <label className="similarity-mode" key={mode}>
+              <input type="checkbox" checked={selectedModes.includes(mode)} onChange={() => toggleMode(mode)} />
+              <span>{similarityModeLabels[mode]}</span>
+            </label>
+          ))}
+        </div>
+        {assignmentSubmissions.length < 2 ? (
+          <p className="muted">유사도 분석은 같은 과제에 제출물이 2개 이상 있어야 실행할 수 있습니다.</p>
+        ) : null}
+      </article>
+
+      <article className="panel similarity-list-panel">
+        <div className="panel-title">
+          <div>
+            <h2>유사 제출물 쌍</h2>
+            <p className="muted">상위 100개 결과를 높은 유사도 순으로 표시합니다.</p>
+          </div>
+        </div>
+        {!analysis ? <p className="muted">아직 분석 결과가 없습니다.</p> : null}
+        <div className="similarity-list">
+          {analysis?.pairs.map((pair) => {
+            const left = submissions.find((submission) => submission.id === pair.submissionAId);
+            const right = submissions.find((submission) => submission.id === pair.submissionBId);
+            return (
+              <button
+                className={selectedPair?.id === pair.id ? "similarity-row selected" : "similarity-row"}
+                key={pair.id}
+                onClick={() => setSelectedPairId(pair.id)}
+              >
+                <div>
+                  <strong>
+                    {left?.studentName ?? "-"} / {right?.studentName ?? "-"}
+                  </strong>
+                  <span>{similarityRiskLabel(pair.score)}</span>
+                </div>
+                <b>{pair.score}%</b>
+              </button>
+            );
+          })}
+        </div>
+      </article>
+
+      <article className="panel similarity-detail-panel">
+        {selectedPair ? (
+          <>
+            <div className="panel-title">
+              <div>
+                <h2>비교 상세</h2>
+                <p className="muted">
+                  {selectedLeft?.studentName ?? "-"} 와 {selectedRight?.studentName ?? "-"}
+                </p>
+              </div>
+              <span className="tag pending-tag">{similarityRiskLabel(selectedPair.score)}</span>
+            </div>
+            <div className="similarity-score-grid">
+              <div>
+                <span>종합</span>
+                <strong>{selectedPair.score}%</strong>
+              </div>
+              <div>
+                <span>문장 일치</span>
+                <strong>{selectedPair.exactScore}%</strong>
+              </div>
+              <div>
+                <span>문장 유사</span>
+                <strong>{selectedPair.sentenceScore}%</strong>
+              </div>
+              <div>
+                <span>문단 유사</span>
+                <strong>{selectedPair.paragraphScore}%</strong>
+              </div>
+              <div>
+                <span>구조 유사</span>
+                <strong>{selectedPair.structureScore}%</strong>
+              </div>
+            </div>
+            <section className="report-detail-section">
+              <h3>동일 문장 후보</h3>
+              {selectedPair.matchedPhrases.length > 0 ? (
+                <div className="match-list">
+                  {selectedPair.matchedPhrases.map((phrase) => (
+                    <p key={phrase}>{phrase}</p>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">완전히 동일한 긴 문장은 확인되지 않았습니다.</p>
+              )}
+            </section>
+            <section className="comparison-text-grid">
+              <div>
+                <h3>{selectedLeft?.studentName ?? "-"}</h3>
+                <div className="report-text-box student-report-box">{selectedLeft?.reportText ?? ""}</div>
+              </div>
+              <div>
+                <h3>{selectedRight?.studentName ?? "-"}</h3>
+                <div className="report-text-box student-report-box">{selectedRight?.reportText ?? ""}</div>
+              </div>
+            </section>
+          </>
+        ) : (
+          <p className="muted">왼쪽 목록에서 비교 결과를 선택하세요.</p>
+        )}
+      </article>
+    </section>
   );
 }
 
