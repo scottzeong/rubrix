@@ -361,10 +361,30 @@ function exactSimilarity(leftSentences: string[], rightSentences: string[]) {
   if (leftSentences.length === 0 || rightSentences.length === 0) {
     return { score: 0, matches: [] as string[] };
   }
-  const rightSet = new Set(rightSentences);
-  const matches = [...new Set(leftSentences.filter((sentence) => rightSet.has(sentence)))].slice(0, 5);
-  const denominator = Math.max(1, Math.min(leftSentences.length, rightSentences.length));
-  return { score: matches.length / denominator, matches };
+  const rightCounts = new Map<string, number>();
+  rightSentences.forEach((sentence) => {
+    rightCounts.set(sentence, (rightCounts.get(sentence) ?? 0) + 1);
+  });
+
+  let matchedCount = 0;
+  const matchedSamples: string[] = [];
+  const sampleSet = new Set<string>();
+
+  leftSentences.forEach((sentence) => {
+    const count = rightCounts.get(sentence) ?? 0;
+    if (count <= 0) return;
+
+    matchedCount += 1;
+    rightCounts.set(sentence, count - 1);
+
+    if (!sampleSet.has(sentence) && matchedSamples.length < 5) {
+      sampleSet.add(sentence);
+      matchedSamples.push(sentence);
+    }
+  });
+
+  const denominator = Math.max(1, Math.max(leftSentences.length, rightSentences.length));
+  return { score: matchedCount / denominator, matches: matchedSamples };
 }
 
 function structureSignature(value: string) {
