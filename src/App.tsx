@@ -92,6 +92,9 @@ type SimilarityPair = {
   paragraphScore: number;
   structureScore: number;
   matchedPhrases: string[];
+  similarSentences: string[];
+  similarParagraphs: string[];
+  structureParagraphIndexes: number[];
 };
 
 type SimilarityAnalysis = {
@@ -357,6 +360,30 @@ function averageBestSimilarity(left: string[], right: string[]) {
   return scores.reduce((total, score) => total + score, 0) / scores.length;
 }
 
+function findSimilarTexts(left: string[], right: string[], threshold: number) {
+  const matches = new Set<string>();
+
+  left.forEach((leftItem) => {
+    let bestScore = 0;
+    let bestRightItem = "";
+
+    right.forEach((rightItem) => {
+      const score = jaccardSimilarity(tokenize(leftItem), tokenize(rightItem));
+      if (score > bestScore) {
+        bestScore = score;
+        bestRightItem = rightItem;
+      }
+    });
+
+    if (bestScore >= threshold) {
+      matches.add(leftItem);
+      if (bestRightItem) matches.add(bestRightItem);
+    }
+  });
+
+  return [...matches].slice(0, 40);
+}
+
 function exactSimilarity(leftSentences: string[], rightSentences: string[]) {
   if (leftSentences.length === 0 || rightSentences.length === 0) {
     return { score: 0, matches: [] as string[] };
@@ -398,6 +425,21 @@ function structureSignature(value: string) {
   });
 }
 
+function structureParagraphIndexes(leftText: string, rightText: string) {
+  const leftSignature = structureSignature(leftText);
+  const rightSignature = structureSignature(rightText);
+  const length = Math.min(leftSignature.length, rightSignature.length);
+  const indexes: number[] = [];
+
+  for (let index = 0; index < length; index += 1) {
+    if (leftSignature[index] === rightSignature[index]) {
+      indexes.push(index);
+    }
+  }
+
+  return indexes.slice(0, 30);
+}
+
 function sequenceSimilarity(left: string[], right: string[]) {
   if (left.length === 0 || right.length === 0) return 0;
   const rows = Array.from({ length: left.length + 1 }, () => Array(right.length + 1).fill(0));
@@ -428,7 +470,10 @@ function analyzeSubmissionSimilarity(
       const rightSentences = splitSentences(right.reportText);
       const exact = exactSimilarity(leftSentences, rightSentences);
       const sentenceScore = averageBestSimilarity(leftSentences, rightSentences);
-      const paragraphScore = averageBestSimilarity(splitParagraphs(left.reportText), splitParagraphs(right.reportText));
+      const leftParagraphs = splitParagraphs(left.reportText);
+      const rightParagraphs = splitParagraphs(right.reportText);
+      const paragraphScore = averageBestSimilarity(leftParagraphs, rightParagraphs);
+      const structureIndexes = structureParagraphIndexes(left.reportText, right.reportText);
       const structureScore = sequenceSimilarity(structureSignature(left.reportText), structureSignature(right.reportText));
       const activeScores = modes.map((mode) => {
         if (mode === "exact") return exact.score;
@@ -451,6 +496,9 @@ function analyzeSubmissionSimilarity(
         paragraphScore: Math.round(paragraphScore * 100),
         structureScore: Math.round(structureScore * 100),
         matchedPhrases: exact.matches,
+        similarSentences: findSimilarTexts(leftSentences, rightSentences, 0.55),
+        similarParagraphs: findSimilarTexts(leftParagraphs, rightParagraphs, 0.42),
+        structureParagraphIndexes: structureIndexes,
       });
     }
   }
@@ -1846,6 +1894,71 @@ function similarityRiskLabel(score: number) {
   return "낮음";
 }
 
+function splitRawParagraphs(value: string) {
+  return value
+    .split(/\n\s*\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function splitRawSentences(value: string) {
+  const sentences = value.match(/[^.!?。！？\n]+[.!?。！？]?/gu) ?? [value];
+  return sentences.map((item) => item.trim()).filter(Boolean);
+}
+
+function HighlightedReport({
+  text,
+  pair,
+  modes,
+}: {
+  text: string;
+  pair: SimilarityPair;
+  modes: SimilarityMode[];
+}) {
+  const exactSet = new Set(pair.matchedPhrases);
+  const sentenceSet = new Set(pair.similarSentences ?? []);
+  const paragraphSet = new Set(pair.similarParagraphs ?? []);
+  const structureSet = new Set(pair.structureParagraphIndexes ?? []);
+  const paragraphs = splitRawParagraphs(text);
+
+  return (
+    <div className="report-text-box highlighted-report-box">
+      {paragraphs.map((paragraph, paragraphIndex) => {
+        const normalizedParagraph = normalizeText(paragraph);
+        const paragraphClasses = [
+          "highlight-paragraph",
+          modes.includes("paragraph") && paragraphSet.has(normalizedParagraph) ? "paragraph-similar" : "",
+          modes.includes("structure") && structureSet.has(paragraphIndex) ? "structure-similar" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const sentences = splitRawSentences(paragraph);
+
+        return (
+          <p className={paragraphClasses} key={`${paragraphIndex}-${normalizedParagraph.slice(0, 20)}`}>
+            {sentences.map((sentence, sentenceIndex) => {
+              const normalizedSentence = normalizeText(sentence);
+              const sentenceClass =
+                modes.includes("exact") && exactSet.has(normalizedSentence)
+                  ? "highlight-sentence exact-similar"
+                  : modes.includes("sentence") && sentenceSet.has(normalizedSentence)
+                    ? "highlight-sentence sentence-similar"
+                    : "highlight-sentence";
+
+              return (
+                <span className={sentenceClass} key={`${sentenceIndex}-${normalizedSentence.slice(0, 20)}`}>
+                  {sentence}
+                  {sentenceIndex < sentences.length - 1 ? " " : ""}
+                </span>
+              );
+            })}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function Analysis({
   analyses,
   assignments,
@@ -2015,6 +2128,12 @@ function Analysis({
             </div>
             <section className="report-detail-section">
               <h3>동일 문장 후보</h3>
+              <div className="highlight-legend">
+                {analysisModes.includes("exact") ? <span className="legend-exact">Exact Match</span> : null}
+                {analysisModes.includes("sentence") ? <span className="legend-sentence">Sentence Similarity</span> : null}
+                {analysisModes.includes("paragraph") ? <span className="legend-paragraph">Paragraph Similarity</span> : null}
+                {analysisModes.includes("structure") ? <span className="legend-structure">Structure Similarity</span> : null}
+              </div>
               {selectedPair.matchedPhrases.length > 0 ? (
                 <div className="match-list">
                   {selectedPair.matchedPhrases.map((phrase) => (
@@ -2028,11 +2147,11 @@ function Analysis({
             <section className="comparison-text-grid">
               <div>
                 <h3>{selectedLeft?.studentName ?? "-"}</h3>
-                <div className="report-text-box student-report-box">{selectedLeft?.reportText ?? ""}</div>
+                <HighlightedReport text={selectedLeft?.reportText ?? ""} pair={selectedPair} modes={analysisModes} />
               </div>
               <div>
                 <h3>{selectedRight?.studentName ?? "-"}</h3>
-                <div className="report-text-box student-report-box">{selectedRight?.reportText ?? ""}</div>
+                <HighlightedReport text={selectedRight?.reportText ?? ""} pair={selectedPair} modes={analysisModes} />
               </div>
             </section>
           </>
