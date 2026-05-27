@@ -634,13 +634,13 @@ export function App() {
     setRubrics((current) => current.map((rubric) => (rubric.id === nextRubric.id ? nextRubric : rubric)));
   }
 
-  function addRubricSet(name?: string, description?: string) {
-    const sourceRubric = selectedRubric;
+  function addRubricSet(name?: string, description?: string, source?: RubricSet) {
+    const sourceRubric = source ?? selectedRubric;
     const nextRubric: RubricSet = {
       ...sourceRubric,
       id: crypto.randomUUID(),
-      name: name?.trim() || `새 평가세트 ${rubrics.length + 1}`,
-      description: description?.trim() || "새 과제에 사용할 평가세트입니다.",
+      name: name?.trim() || sourceRubric.name || `새 평가세트 ${rubrics.length + 1}`,
+      description: description?.trim() || sourceRubric.description || "새 과제에 사용할 평가세트입니다.",
       categories: sourceRubric.categories.map((categoryItem) => ({
         ...categoryItem,
         id: crypto.randomUUID(),
@@ -1144,17 +1144,45 @@ function RubricSets({
   selectedRubric: RubricSet;
   setSelectedRubricId: (id: string) => void;
   updateRubric: (rubric: RubricSet) => void;
-  addRubricSet: (name?: string, description?: string) => void;
+  addRubricSet: (name?: string, description?: string, source?: RubricSet) => void;
   deleteRubricSet: (rubricId: string) => void;
 }) {
   const [isAddingRubric, setIsAddingRubric] = useState(false);
+  const [isRubricEditing, setIsRubricEditing] = useState(false);
   const [newRubricName, setNewRubricName] = useState("");
   const [newRubricDescription, setNewRubricDescription] = useState("");
+  const [draftRubric, setDraftRubric] = useState<RubricSet | null>(null);
+  const editableRubric = isAddingRubric && draftRubric ? draftRubric : selectedRubric;
+
+  function updateEditableRubric(nextRubric: RubricSet) {
+    if (isAddingRubric) {
+      setDraftRubric(nextRubric);
+      return;
+    }
+
+    updateRubric(nextRubric);
+  }
+
+  function startAddingRubric() {
+    setDraftRubric({
+      ...selectedRubric,
+      id: "draft-rubric",
+      name: newRubricName || selectedRubric.name,
+      description: newRubricDescription || selectedRubric.description,
+      categories: selectedRubric.categories.map((categoryItem) => ({
+        ...categoryItem,
+        criteria: categoryItem.criteria.map((criterionItem) => ({ ...criterionItem })),
+      })),
+    });
+    setIsAddingRubric(true);
+    setIsRubricEditing(true);
+  }
 
   function toggleCriterion(categoryId: string, criterionId: string) {
-    updateRubric({
-      ...selectedRubric,
-      categories: selectedRubric.categories.map((categoryItem) =>
+    if (!isRubricEditing) return;
+    updateEditableRubric({
+      ...editableRubric,
+      categories: editableRubric.categories.map((categoryItem) =>
         categoryItem.id === categoryId
           ? {
               ...categoryItem,
@@ -1170,37 +1198,54 @@ function RubricSets({
   }
 
   function confirmAddRubric() {
-    addRubricSet(newRubricName, newRubricDescription);
+    if (!isScoreBalanced) {
+      window.alert("배점 합계가 100점이 되어야 평가세트를 추가할 수 있습니다.");
+      return;
+    }
+
+    addRubricSet(newRubricName, newRubricDescription, editableRubric);
     setNewRubricName("");
     setNewRubricDescription("");
+    setDraftRubric(null);
     setIsAddingRubric(false);
+    setIsRubricEditing(false);
   }
 
   function updateCategoryScore(categoryId: string, value: string) {
+    if (!isRubricEditing) return;
     const nextScore = Math.max(0, Math.min(100, Number(value) || 0));
-    updateRubric({
-      ...selectedRubric,
-      categories: selectedRubric.categories.map((categoryItem) =>
+    updateEditableRubric({
+      ...editableRubric,
+      categories: editableRubric.categories.map((categoryItem) =>
         categoryItem.id === categoryId ? { ...categoryItem, maxScore: nextScore } : categoryItem
       ),
     });
   }
 
-  const totalScore = selectedRubric.categories.reduce((total, categoryItem) => total + categoryItem.maxScore, 0);
-  const commonScore = selectedRubric.categories
+  const totalScore = editableRubric.categories.reduce((total, categoryItem) => total + categoryItem.maxScore, 0);
+  const commonScore = editableRubric.categories
     .filter((categoryItem) => categoryItem.type === "common")
     .reduce((total, categoryItem) => total + categoryItem.maxScore, 0);
-  const taskScore = selectedRubric.categories
+  const taskScore = editableRubric.categories
     .filter((categoryItem) => categoryItem.type === "task")
     .reduce((total, categoryItem) => total + categoryItem.maxScore, 0);
   const isScoreBalanced = totalScore === 100;
+
+  function toggleRubricScoreEditing() {
+    if (isRubricEditing && !isScoreBalanced) {
+      window.alert("배점 합계가 100점이 되어야 확정할 수 있습니다.");
+      return;
+    }
+
+    setIsRubricEditing((current) => !current);
+  }
 
   return (
     <section className="two-column">
       <article className="panel">
         <div className="panel-title">
           <h2>평가세트 목록</h2>
-          <button className="icon-button" title="평가세트 추가" onClick={() => setIsAddingRubric(true)}>
+          <button className="icon-button" title="평가세트 추가" onClick={startAddingRubric}>
             <Plus size={18} />
           </button>
         </div>
@@ -1226,7 +1271,14 @@ function RubricSets({
               <button className="primary-button" onClick={confirmAddRubric}>
                 확인
               </button>
-              <button className="secondary-button" onClick={() => setIsAddingRubric(false)}>
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setIsAddingRubric(false);
+                  setIsRubricEditing(false);
+                  setDraftRubric(null);
+                }}
+              >
                 취소
               </button>
             </div>
@@ -1234,7 +1286,15 @@ function RubricSets({
         ) : null}
         {rubrics.map((rubric) => (
           <div className={selectedRubric.id === rubric.id ? "select-row selected" : "select-row"} key={rubric.id}>
-            <button className="row-main-button" onClick={() => setSelectedRubricId(rubric.id)}>
+            <button
+              className="row-main-button"
+              onClick={() => {
+                setSelectedRubricId(rubric.id);
+                setIsAddingRubric(false);
+                setIsRubricEditing(false);
+                setDraftRubric(null);
+              }}
+            >
               <strong>{rubric.name}</strong>
               <span>{rubric.description}</span>
             </button>
@@ -1251,6 +1311,9 @@ function RubricSets({
             <h2>평가기준 관리</h2>
             <p className="muted">공통 평가 80점 + 과제유형별 추가 평가 20점</p>
           </div>
+          <button className="secondary-button" onClick={toggleRubricScoreEditing}>
+            {isRubricEditing ? "배점 확정" : "배점 수정"}
+          </button>
         </div>
         <div className={isScoreBalanced ? "score-balance balanced" : "score-balance warning"}>
           <strong>배점 합계 {totalScore}/100</strong>
@@ -1261,20 +1324,22 @@ function RubricSets({
           <label className="field">
             <span>평가세트 이름</span>
             <input
-              value={selectedRubric.name}
-              onChange={(event) => updateRubric({ ...selectedRubric, name: event.target.value })}
+              value={editableRubric.name}
+              disabled={!isRubricEditing}
+              onChange={(event) => updateEditableRubric({ ...editableRubric, name: event.target.value })}
             />
           </label>
           <label className="field">
             <span>평가세트 설명</span>
             <input
-              value={selectedRubric.description}
-              onChange={(event) => updateRubric({ ...selectedRubric, description: event.target.value })}
+              value={editableRubric.description}
+              disabled={!isRubricEditing}
+              onChange={(event) => updateEditableRubric({ ...editableRubric, description: event.target.value })}
             />
           </label>
         </div>
         <div className="rubric-grid">
-          {selectedRubric.categories.map((categoryItem) => (
+          {editableRubric.categories.map((categoryItem) => (
             <div className="category-box" key={categoryItem.id}>
               <div className="category-head">
                 <strong>{categoryItem.name}</strong>
@@ -1284,6 +1349,7 @@ function RubricSets({
                     max="100"
                     type="number"
                     value={categoryItem.maxScore}
+                    disabled={!isRubricEditing}
                     onChange={(event) => updateCategoryScore(categoryItem.id, event.target.value)}
                   />
                   <span>점</span>
@@ -1294,6 +1360,7 @@ function RubricSets({
                   <input
                     type="checkbox"
                     checked={criterionItem.enabled}
+                    disabled={!isRubricEditing}
                     onChange={() => toggleCriterion(categoryItem.id, criterionItem.id)}
                   />
                   <span>{criterionItem.name}</span>
@@ -1306,22 +1373,25 @@ function RubricSets({
           <label className="field full">
             <span>페르소나</span>
             <textarea
-              value={selectedRubric.promptPersona}
-              onChange={(event) => updateRubric({ ...selectedRubric, promptPersona: event.target.value })}
+              value={editableRubric.promptPersona}
+              disabled={!isRubricEditing}
+              onChange={(event) => updateEditableRubric({ ...editableRubric, promptPersona: event.target.value })}
             />
           </label>
           <label className="field full">
             <span>공통 기준</span>
             <textarea
-              value={selectedRubric.promptCommonCriteria}
-              onChange={(event) => updateRubric({ ...selectedRubric, promptCommonCriteria: event.target.value })}
+              value={editableRubric.promptCommonCriteria}
+              disabled={!isRubricEditing}
+              onChange={(event) => updateEditableRubric({ ...editableRubric, promptCommonCriteria: event.target.value })}
             />
           </label>
           <label className="field full">
             <span>중요한 원칙</span>
             <textarea
-              value={selectedRubric.promptPrinciples}
-              onChange={(event) => updateRubric({ ...selectedRubric, promptPrinciples: event.target.value })}
+              value={editableRubric.promptPrinciples}
+              disabled={!isRubricEditing}
+              onChange={(event) => updateEditableRubric({ ...editableRubric, promptPrinciples: event.target.value })}
             />
           </label>
         </div>
