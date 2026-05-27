@@ -1998,19 +1998,19 @@ function Analysis({
               </div>
               <div>
                 <span>문장 일치</span>
-                <strong>{analysisModes.includes("exact") ? `${selectedPair.exactScore}%` : "제외"}</strong>
+                <strong>{analysisModes.includes("exact") ? `${selectedPair.exactScore}%` : "-"}</strong>
               </div>
               <div>
                 <span>문장 유사</span>
-                <strong>{analysisModes.includes("sentence") ? `${selectedPair.sentenceScore}%` : "제외"}</strong>
+                <strong>{analysisModes.includes("sentence") ? `${selectedPair.sentenceScore}%` : "-"}</strong>
               </div>
               <div>
                 <span>문단 유사</span>
-                <strong>{analysisModes.includes("paragraph") ? `${selectedPair.paragraphScore}%` : "제외"}</strong>
+                <strong>{analysisModes.includes("paragraph") ? `${selectedPair.paragraphScore}%` : "-"}</strong>
               </div>
               <div>
                 <span>구조 유사</span>
-                <strong>{analysisModes.includes("structure") ? `${selectedPair.structureScore}%` : "제외"}</strong>
+                <strong>{analysisModes.includes("structure") ? `${selectedPair.structureScore}%` : "-"}</strong>
               </div>
             </div>
             <section className="report-detail-section">
