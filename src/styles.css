@@ -319,6 +319,26 @@ h2 {
   gap: 8px;
 }
 
+.backup-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.backup-file-button {
+  position: relative;
+}
+
+.backup-file-button input {
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.backup-note {
+  margin-bottom: 0;
+}
+
 .confirm-box {
   background: #f8fafc;
   border: 1px solid #bfdbfe;

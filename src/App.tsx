@@ -167,6 +167,19 @@ type TaskType = {
   focus: string[];
 };
 
+type AppStateData = {
+  rubrics: RubricSet[];
+  assignments: Assignment[];
+  taskTypes: TaskType[];
+  submissions: Submission[];
+  evaluations: Evaluation[];
+  similarityAnalyses: SimilarityAnalysis[];
+  aiBaselines: AiBaseline[];
+  aiGeneratedResults: AiGeneratedResult[];
+  selectedRubricId: string;
+  aiModel: string;
+};
+
 const initialTaskTypes: TaskType[] = [
   {
     id: "literature-review",
@@ -647,6 +660,32 @@ export function App() {
   const [isStateLoaded, setIsStateLoaded] = useState(false);
   const [storageStatus, setStorageStatus] = useState("저장소 연결 확인 중");
   const selectedRubric = rubrics.find((rubric) => rubric.id === selectedRubricId) ?? rubrics[0];
+  const currentAppState = useMemo<AppStateData>(
+    () => ({
+      rubrics,
+      assignments,
+      taskTypes,
+      submissions,
+      evaluations,
+      similarityAnalyses,
+      aiBaselines,
+      aiGeneratedResults,
+      selectedRubricId,
+      aiModel,
+    }),
+    [
+      aiBaselines,
+      aiGeneratedResults,
+      aiModel,
+      assignments,
+      evaluations,
+      rubrics,
+      selectedRubricId,
+      similarityAnalyses,
+      submissions,
+      taskTypes,
+    ]
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -705,18 +744,7 @@ export function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            data: {
-              rubrics,
-              assignments,
-              taskTypes,
-              submissions,
-              evaluations,
-              similarityAnalyses,
-              aiBaselines,
-              aiGeneratedResults,
-              selectedRubricId,
-              aiModel,
-            },
+            data: currentAppState,
           }),
         });
         const payload = await readApiJson(response);
@@ -733,20 +761,26 @@ export function App() {
 
     return () => window.clearTimeout(timeoutId);
   }, [
-    aiModel,
-    assignments,
-    aiBaselines,
-    aiGeneratedResults,
-    evaluations,
+    currentAppState,
     isStateLoaded,
-    rubrics,
-    selectedRubricId,
-    similarityAnalyses,
-    submissions,
-    taskTypes,
-    aiBaselines,
-    aiGeneratedResults,
   ]);
+
+  useEffect(() => {
+    if (!isStateLoaded) return;
+
+    try {
+      window.localStorage.setItem(
+        "rubrix-local-backup",
+        JSON.stringify({
+          version: 1,
+          createdAt: new Date().toISOString(),
+          data: currentAppState,
+        })
+      );
+    } catch {
+      // Local backup is best-effort; Supabase save status remains the primary visible signal.
+    }
+  }, [currentAppState, isStateLoaded]);
 
   const stats = useMemo(
     () => [
@@ -760,6 +794,44 @@ export function App() {
 
   function updateRubric(nextRubric: RubricSet) {
     setRubrics((current) => current.map((rubric) => (rubric.id === nextRubric.id ? nextRubric : rubric)));
+  }
+
+  function restoreAppState(nextState: Partial<AppStateData>) {
+    if (!window.confirm("백업 파일의 데이터로 현재 데이터를 복원할까요? 현재 서버 데이터는 복원 데이터로 덮어써집니다.")) {
+      return;
+    }
+
+    setRubrics(nextState.rubrics?.length ? nextState.rubrics : [seedRubric]);
+    setAssignments(nextState.assignments ?? []);
+    setTaskTypes(nextState.taskTypes?.length ? nextState.taskTypes : initialTaskTypes);
+    setSubmissions(nextState.submissions ?? []);
+    setEvaluations(nextState.evaluations ?? []);
+    setSimilarityAnalyses(nextState.similarityAnalyses ?? []);
+    setAiBaselines(nextState.aiBaselines ?? []);
+    setAiGeneratedResults(nextState.aiGeneratedResults ?? []);
+    setSelectedRubricId(nextState.selectedRubricId ?? nextState.rubrics?.[0]?.id ?? seedRubric.id);
+    setAiModel(nextState.aiModel ?? "gpt-5.4-mini");
+    setStorageStatus("백업 복원됨. 자동 저장 대기 중");
+  }
+
+  function downloadBackup() {
+    const backup = {
+      version: 1,
+      createdAt: new Date().toISOString(),
+      data: currentAppState,
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], {
+      type: "application/json;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const date = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `rubrix-backup-${date}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   function addRubricSet(name?: string, description?: string, source?: RubricSet) {
@@ -1247,7 +1319,14 @@ export function App() {
         {activeMenu === "reports" && (
           <Reports evaluations={evaluations} submissions={submissions} assignments={assignments} />
         )}
-        {activeMenu === "settings" && <SettingsPanel aiModel={aiModel} setAiModel={setAiModel} />}
+        {activeMenu === "settings" && (
+          <SettingsPanel
+            aiModel={aiModel}
+            setAiModel={setAiModel}
+            downloadBackup={downloadBackup}
+            restoreBackup={restoreAppState}
+          />
+        )}
         {activeMenu === "safeModel" && <SafeModelGuide />}
         {activeMenu === "userManual" && <UserManualGuide />}
       </main>
@@ -3721,27 +3800,74 @@ function UserManualGuide() {
 function SettingsPanel({
   aiModel,
   setAiModel,
+  downloadBackup,
+  restoreBackup,
 }: {
   aiModel: string;
   setAiModel: React.Dispatch<React.SetStateAction<string>>;
+  downloadBackup: () => void;
+  restoreBackup: (state: Partial<AppStateData>) => void;
 }) {
+  function handleRestoreFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        const nextState = parsed.data ?? parsed;
+        restoreBackup(nextState);
+      } catch {
+        window.alert("백업 파일을 읽지 못했습니다. Rubrix JSON 백업 파일인지 확인해 주세요.");
+      }
+    };
+    reader.readAsText(file, "utf-8");
+  }
+
   return (
-    <article className="panel settings-panel">
-      <h2>AI 설정</h2>
-      <div className="form-grid">
-        <label className="field">
-          <span>모델</span>
-          <input value={aiModel} onChange={(event) => setAiModel(event.target.value)} />
-        </label>
-        <label className="field">
-          <span>API 키</span>
-          <input placeholder="OPENAI_API_KEY 환경변수로 설정" type="password" disabled />
-        </label>
-        <label className="field">
-          <span>기본 언어</span>
-          <input defaultValue="한국어" />
-        </label>
-      </div>
-    </article>
+    <section className="content-grid">
+      <article className="panel settings-panel">
+        <h2>AI 설정</h2>
+        <div className="form-grid">
+          <label className="field">
+            <span>모델</span>
+            <input value={aiModel} onChange={(event) => setAiModel(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>API 키</span>
+            <input placeholder="OPENAI_API_KEY 환경변수로 설정" type="password" disabled />
+          </label>
+          <label className="field">
+            <span>기본 언어</span>
+            <input defaultValue="한국어" />
+          </label>
+        </div>
+      </article>
+
+      <article className="panel backup-panel">
+        <div>
+          <h2>데이터 백업</h2>
+          <p className="muted">
+            현재 Rubrix 데이터를 PC에 JSON 파일로 저장하거나, 저장해 둔 백업 파일로 복원할 수 있습니다.
+            브라우저에는 최근 상태가 자동 로컬 백업으로도 저장됩니다.
+          </p>
+        </div>
+        <div className="button-group">
+          <button className="primary-button" type="button" onClick={downloadBackup}>
+            백업 다운로드
+          </button>
+          <label className="secondary-button backup-file-button">
+            백업 복원
+            <input accept="application/json" type="file" onChange={handleRestoreFile} />
+          </label>
+        </div>
+        <p className="muted backup-note">
+          중요한 평가 전후에는 `백업 다운로드`를 눌러 PC에 파일을 보관해 주세요. 파일명은
+          `rubrix-backup-날짜.json` 형식으로 저장됩니다.
+        </p>
+      </article>
+    </section>
   );
 }
