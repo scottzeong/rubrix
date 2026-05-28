@@ -1083,41 +1083,143 @@ h2 {
   font-size: 20px;
 }
 
+.ai-score-row > span {
+  display: none;
+}
+
 .ai-score-row span {
   color: #475569;
   font-size: 13px;
   overflow-wrap: anywhere;
 }
 
-.evaluation-score-strip {
+.score-badge,
+.model-score-chip {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 900;
+  min-height: 28px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.score-green {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.score-blue {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.score-orange {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.score-red {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.score-empty {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.model-group-list,
+.evaluation-model-groups {
+  display: grid;
+  gap: 8px;
+}
+
+.model-group {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.model-group > strong {
+  color: #1e3a8a;
+  font-size: 13px;
+}
+
+.model-group div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.evaluation-score-row {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
   margin-bottom: 16px;
 }
 
-.evaluation-score-strip div {
+.primary-score-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.similarity-score-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.evaluation-score-row div,
+.rubrix-tuning-box {
   background: #f8fafc;
   border: 1px solid #dbeafe;
   border-radius: 8px;
   padding: 10px;
 }
 
-.evaluation-score-strip span,
-.evaluation-score-strip strong {
+.evaluation-score-row span,
+.evaluation-score-row strong,
+.rubrix-tuning-box span,
+.rubrix-tuning-box strong {
   display: block;
 }
 
-.evaluation-score-strip span {
+.evaluation-score-row span,
+.rubrix-tuning-box span {
   color: #64748b;
   font-size: 12px;
   font-weight: 900;
   margin-bottom: 5px;
 }
 
-.evaluation-score-strip strong {
+.evaluation-score-row strong,
+.rubrix-tuning-box strong {
   color: #0f172a;
   font-size: 20px;
+}
+
+.legacy-evaluation-score-strip,
+.report-detail-panel > .model-score-list,
+.report-detail-panel > .score-field {
+  display: none;
+}
+
+.tuning-score-row {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(180px, 0.45fr) minmax(240px, 0.55fr);
+  margin-bottom: 16px;
+}
+
+.rubrix-tuning-box {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr auto;
+}
+
+.rubrix-tuning-box span {
+  grid-column: 1 / -1;
 }
 
 .model-score-list {
@@ -1340,6 +1442,9 @@ h2 {
   .similarity-score-grid,
   .comparison-text-grid,
   .evaluation-score-strip,
+  .primary-score-row,
+  .similarity-score-row,
+  .tuning-score-row,
   .ai-score-head,
   .ai-score-row,
   .form-grid {

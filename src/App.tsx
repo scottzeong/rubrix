@@ -2399,7 +2399,25 @@ function AiGeneratedScore({
           return (
             <div className="ai-score-row" key={submission.id}>
               <strong>{submission.studentName}</strong>
-              <b>{score ? `${score.averageScore}%` : "-"}</b>
+              <ScoreBadge score={score?.averageScore} />
+              <div className="model-group-list">
+                {score?.modelScores.length ? (
+                  Object.entries(groupModelScores(score.modelScores)).map(([type, modelScores]) => (
+                    <div className="model-group" key={type}>
+                      <strong>{type}</strong>
+                      <div>
+                        {modelScores.map((modelScore) => (
+                          <span className={`model-score-chip ${scoreTone(modelScore.score)}`} key={modelScore.baselineId}>
+                            {modelScore.model} {modelScore.score}%
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <span className="muted">아직 진단 결과가 없습니다.</span>
+                )}
+              </div>
               <span>
                 {score?.modelScores.length
                   ? score.modelScores.map((modelScore) => `${modelScore.type}/${modelScore.model}: ${modelScore.score}%`).join(" · ")
@@ -2442,6 +2460,7 @@ function Evaluations({
   const aiGeneratedScore = aiGeneratedResults
     .find((result) => result.assignmentId === selectedAssignment?.id)
     ?.scores.find((score) => score.submissionId === selectedSubmission?.id);
+  const groupedAiGeneratedScores = groupModelScores(aiGeneratedScore?.modelScores ?? []);
 
   useEffect(() => {
     if (!selectedEvaluationId && pendingEvaluations[0]?.id) {
@@ -2497,7 +2516,53 @@ function Evaluations({
               평가완료
             </button>
           </div>
-          <div className="evaluation-score-strip">
+          <div className="evaluation-score-row primary-score-row">
+            <div><span>AI 평가점수</span><strong>{selectedEvaluation.totalScore}</strong></div>
+            <div><span>AI Generated</span><ScoreBadge score={aiGeneratedScore?.averageScore} /></div>
+            <div><span>Analysis 종합</span><ScoreBadge score={similaritySummary?.score} /></div>
+          </div>
+          <div className="evaluation-score-row similarity-score-row">
+            <div><span>문장일치</span><ScoreBadge score={similaritySummary?.exactScore} /></div>
+            <div><span>문장유사</span><ScoreBadge score={similaritySummary?.sentenceScore} /></div>
+            <div><span>문단유사</span><ScoreBadge score={similaritySummary?.paragraphScore} /></div>
+            <div><span>구조유사</span><ScoreBadge score={similaritySummary?.structureScore} /></div>
+          </div>
+          <div className="evaluation-model-groups">
+            {aiGeneratedScore?.modelScores.length ? (
+              Object.entries(groupedAiGeneratedScores).map(([type, modelScores]) => (
+                <div className="model-group" key={type}>
+                  <strong>{type}</strong>
+                  <div>
+                    {modelScores.map((modelScore) => (
+                      <span className={`model-score-chip ${scoreTone(modelScore.score)}`} key={modelScore.baselineId}>
+                        {modelScore.model} {modelScore.score}%
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <span className="muted">AI Generated Score 결과가 없습니다.</span>
+            )}
+          </div>
+          <div className="tuning-score-row">
+            <label className="field score-field">
+              <span>최종조정점수</span>
+              <input
+                min="0"
+                max="100"
+                type="number"
+                value={selectedEvaluation.totalScore}
+                onChange={(event) => updateEvaluation(selectedEvaluation.id, "totalScore", event.target.value)}
+              />
+            </label>
+            <div className="rubrix-tuning-box">
+              <span>Rubrix Tuning Score</span>
+              <strong>-</strong>
+              <button className="secondary-button" type="button">Tuning</button>
+            </div>
+          </div>
+          <div className="evaluation-score-strip legacy-evaluation-score-strip">
             <div><span>AI 평가점수</span><strong>{selectedEvaluation.totalScore}</strong></div>
             <div><span>AI Generated</span><strong>{aiGeneratedScore ? `${aiGeneratedScore.averageScore}%` : "-"}</strong></div>
             <div><span>Analysis 종합</span><strong>{similaritySummary ? `${similaritySummary.score}%` : "-"}</strong></div>
@@ -2620,6 +2685,25 @@ function similarityRiskLabel(score: number) {
   if (score >= 50) return "검토 필요";
   if (score >= 30) return "참고 확인";
   return "낮음";
+}
+
+function scoreTone(score?: number) {
+  if (score === undefined || Number.isNaN(score)) return "score-empty";
+  if (score <= 20) return "score-green";
+  if (score <= 40) return "score-blue";
+  if (score < 60) return "score-orange";
+  return "score-red";
+}
+
+function ScoreBadge({ score }: { score?: number }) {
+  return <span className={`score-badge ${scoreTone(score)}`}>{score === undefined ? "-" : `${score}%`}</span>;
+}
+
+function groupModelScores(modelScores: AiGeneratedModelScore[] = []) {
+  return modelScores.reduce<Record<string, AiGeneratedModelScore[]>>((groups, modelScore) => {
+    groups[modelScore.type] = [...(groups[modelScore.type] ?? []), modelScore];
+    return groups;
+  }, {});
 }
 
 function splitRawParagraphs(value: string) {
