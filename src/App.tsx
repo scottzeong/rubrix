@@ -10,6 +10,7 @@ import {
   Plus,
   SearchCheck,
   Settings,
+  ShieldCheck,
   Sparkles,
   Square,
   Upload,
@@ -27,7 +28,8 @@ type MenuKey =
   | "analysis"
   | "evaluations"
   | "reports"
-  | "settings";
+  | "settings"
+  | "safeModel";
 
 type Criterion = {
   id: string;
@@ -78,10 +80,14 @@ type Evaluation = {
   submissionId: string;
   rubricSetId: string;
   totalScore: number;
+  aiEvaluationScore?: number;
   status: "ai_completed" | "finalized";
   feedback: string;
   studentReport: string;
   prompt: string;
+  rubrixTuningScore?: number;
+  rubrixTuningDelta?: number;
+  rubrixTuningNote?: string;
 };
 
 type SimilarityMode = "exact" | "sentence" | "paragraph" | "structure";
@@ -353,6 +359,7 @@ const menu = [
   { key: "evaluations", label: "Evaluations", icon: Sparkles },
   { key: "reports", label: "Reports", icon: BarChart3 },
   { key: "settings", label: "Settings", icon: Settings },
+  { key: "safeModel", label: "Rubrix Tuning (SAFE Model)", icon: ShieldCheck },
 ] satisfies { key: MenuKey; label: string; icon: typeof LayoutDashboard }[];
 
 function statusLabel(status: Evaluation["status"]) {
@@ -969,6 +976,7 @@ export function App() {
           submissionId: submission.id,
           rubricSetId: rubric.id,
           totalScore: evaluatedScore,
+          aiEvaluationScore: evaluatedScore,
           status: "ai_completed",
           prompt,
           feedback: evaluatedFeedback,
@@ -1067,6 +1075,54 @@ export function App() {
       result,
       ...current.filter((item) => item.assignmentId !== assignmentId),
     ]);
+  }
+
+  function runRubrixTuning(assignmentId: string) {
+    const assignmentEvaluationSignals = evaluations
+      .filter((evaluation) => evaluation.status !== "finalized")
+      .map((evaluation) => {
+        const submission = submissions.find((item) => item.id === evaluation.submissionId);
+        if (submission?.assignmentId !== assignmentId) return null;
+        const similaritySummary = similarityAnalyses
+          .find((analysis) => analysis.assignmentId === assignmentId)
+          ?.submissionSummaries?.find((summary) => summary.submissionId === submission.id);
+        const aiGeneratedScore = aiGeneratedResults
+          .find((result) => result.assignmentId === assignmentId)
+          ?.scores.find((score) => score.submissionId === submission.id);
+
+        const signal: SafeSignal = {
+          evaluationId: evaluation.id,
+          aies: evaluation.aiEvaluationScore ?? evaluation.totalScore,
+          exact: similaritySummary?.exactScore,
+          sentence: similaritySummary?.sentenceScore,
+          paragraph: similaritySummary?.paragraphScore,
+          structure: similaritySummary?.structureScore,
+          modelScores: Object.fromEntries(
+            (aiGeneratedScore?.modelScores ?? []).slice(0, 6).map((modelScore) => [modelScore.baselineId, modelScore.score])
+          ),
+        };
+        return signal;
+      })
+      .filter((signal): signal is SafeSignal => signal !== null);
+
+    if (assignmentEvaluationSignals.length === 0) return;
+
+    const tuningResults = calculateSafeTuning(assignmentEvaluationSignals);
+    const tuningMap = new Map(tuningResults.map((result) => [result.evaluationId, result]));
+
+    setEvaluations((current) =>
+      current.map((evaluation) => {
+        const result = tuningMap.get(evaluation.id);
+        return result
+          ? {
+              ...evaluation,
+              rubrixTuningScore: result.score,
+              rubrixTuningDelta: result.delta,
+              rubrixTuningNote: result.note,
+            }
+          : evaluation;
+      })
+    );
   }
 
   return (
@@ -1184,12 +1240,14 @@ export function App() {
             aiGeneratedResults={aiGeneratedResults}
             finalizeEvaluation={finalizeEvaluation}
             updateEvaluations={setEvaluations}
+            runRubrixTuning={runRubrixTuning}
           />
         )}
         {activeMenu === "reports" && (
           <Reports evaluations={evaluations} submissions={submissions} assignments={assignments} />
         )}
         {activeMenu === "settings" && <SettingsPanel aiModel={aiModel} setAiModel={setAiModel} />}
+        {activeMenu === "safeModel" && <SafeModelGuide />}
       </main>
     </div>
   );
@@ -2456,6 +2514,7 @@ function Evaluations({
   aiGeneratedResults,
   finalizeEvaluation,
   updateEvaluations,
+  runRubrixTuning,
 }: {
   evaluations: Evaluation[];
   submissions: Submission[];
@@ -2464,6 +2523,7 @@ function Evaluations({
   aiGeneratedResults: AiGeneratedResult[];
   finalizeEvaluation: (evaluationId: string) => void;
   updateEvaluations: React.Dispatch<React.SetStateAction<Evaluation[]>>;
+  runRubrixTuning: (assignmentId: string) => void;
 }) {
   const pendingEvaluations = evaluations.filter((evaluation) => evaluation.status !== "finalized");
   const [selectedAssignmentFilterId, setSelectedAssignmentFilterId] = useState(assignments[0]?.id ?? "");
@@ -2505,9 +2565,12 @@ function Evaluations({
   }, [selectedAssignmentFilterId, pendingEvaluations.length, selectedEvaluationId]);
 
   function handleRunRubrixTuning() {
-    if (isRunningTuning) return;
+    if (isRunningTuning || !selectedFilterAssignment) return;
     setIsRunningTuning(true);
-    window.setTimeout(() => setIsRunningTuning(false), 350);
+    window.setTimeout(() => {
+      runRubrixTuning(selectedFilterAssignment.id);
+      setIsRunningTuning(false);
+    }, 50);
   }
 
   function updateEvaluation(evaluationId: string, field: "totalScore" | "feedback" | "studentReport", value: string) {
@@ -2575,7 +2638,7 @@ function Evaluations({
             </div>
           </div>
           <div className="evaluation-score-row primary-score-row">
-            <div><span>AI 평가점수</span><strong>{selectedEvaluation.totalScore}</strong></div>
+            <div><span>AI 평가점수</span><strong>{selectedEvaluation.aiEvaluationScore ?? selectedEvaluation.totalScore}</strong></div>
             <div><span>AI Generated</span><ScoreBadge score={aiGeneratedScore?.averageScore} /></div>
             <div><span>Analysis 종합</span><ScoreBadge score={similaritySummary?.score} /></div>
           </div>
@@ -2627,11 +2690,23 @@ function Evaluations({
             </label>
             <div className="rubrix-tuning-box">
               <span>Rubrix Tuning Score</span>
-              <strong>-</strong>
+              <strong>
+                {selectedEvaluation.rubrixTuningScore === undefined
+                  ? "-"
+                  : `${selectedEvaluation.rubrixTuningScore}점`}
+              </strong>
+              {selectedEvaluation.rubrixTuningDelta !== undefined ? (
+                <small>
+                  {selectedEvaluation.rubrixTuningDelta > 0 ? "+" : ""}
+                  {selectedEvaluation.rubrixTuningDelta}점 · {selectedEvaluation.rubrixTuningNote}
+                </small>
+              ) : (
+                <small>상단의 Rubrix Tuning을 눌러 과제 단위로 계산하세요.</small>
+              )}
             </div>
           </div>
           <div className="evaluation-score-strip legacy-evaluation-score-strip">
-            <div><span>AI 평가점수</span><strong>{selectedEvaluation.totalScore}</strong></div>
+            <div><span>AI 평가점수</span><strong>{selectedEvaluation.aiEvaluationScore ?? selectedEvaluation.totalScore}</strong></div>
             <div><span>AI Generated</span><strong>{aiGeneratedScore ? `${aiGeneratedScore.averageScore}%` : "-"}</strong></div>
             <div><span>Analysis 종합</span><strong>{similaritySummary ? `${similaritySummary.score}%` : "-"}</strong></div>
             <div><span>문장일치</span><strong>{similaritySummary ? `${similaritySummary.exactScore}%` : "-"}</strong></div>
@@ -2776,6 +2851,151 @@ function groupModelScores(modelScores: AiGeneratedModelScore[] = []) {
 
 function modelColumnLabel(baseline: AiBaseline) {
   return `${baseline.type}\n${baseline.model}`;
+}
+
+const safeDefaults = {
+  maxScore: 100,
+  epsilon: 0.001,
+  k: 1,
+  rho: 0.15,
+  lambda: 0.5,
+  theta: 0.3,
+  wA: 0.15,
+  wInt: 0.5,
+  hardCap: 8,
+  beta: {
+    exact: 0.35,
+    sentence: 0.3,
+    paragraph: 0.2,
+    structure: 0.15,
+  },
+};
+
+type SafeSignal = {
+  evaluationId: string;
+  aies: number;
+  exact?: number;
+  sentence?: number;
+  paragraph?: number;
+  structure?: number;
+  modelScores: Record<string, number>;
+};
+
+type SafeTuningResult = {
+  evaluationId: string;
+  score: number;
+  delta: number;
+  note: string;
+};
+
+function clampScore(value: number, min = 0, max = safeDefaults.maxScore) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function logitScore(value: number) {
+  const score = clampScore(value);
+  return Math.log((score + safeDefaults.epsilon) / (safeDefaults.maxScore - score + safeDefaults.epsilon));
+}
+
+function mean(values: number[]) {
+  return values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0;
+}
+
+function standardDeviation(values: number[]) {
+  if (!values.length) return 0;
+  const average = mean(values);
+  return Math.sqrt(mean(values.map((value) => (value - average) ** 2)));
+}
+
+function zScores<T extends string>(
+  items: { id: T; value?: number }[],
+  transform: (value: number) => number = (value) => value
+) {
+  const validItems = items.filter((item): item is { id: T; value: number } => item.value !== undefined);
+  const transformedValues = validItems.map((item) => transform(item.value));
+  const average = mean(transformedValues);
+  const deviation = standardDeviation(transformedValues);
+  const scores = new Map<T, number>();
+
+  validItems.forEach((item, index) => {
+    scores.set(item.id, deviation === 0 ? 0 : (transformedValues[index] - average) / deviation);
+  });
+
+  return scores;
+}
+
+function calculateSafeTuning(signals: SafeSignal[]) {
+  const zAies = zScores(signals.map((signal) => ({ id: signal.evaluationId, value: signal.aies })));
+  const zExact = zScores(
+    signals.map((signal) => ({ id: signal.evaluationId, value: signal.exact })),
+    logitScore
+  );
+  const zSentence = zScores(
+    signals.map((signal) => ({ id: signal.evaluationId, value: signal.sentence })),
+    logitScore
+  );
+  const zParagraph = zScores(
+    signals.map((signal) => ({ id: signal.evaluationId, value: signal.paragraph })),
+    logitScore
+  );
+  const zStructure = zScores(
+    signals.map((signal) => ({ id: signal.evaluationId, value: signal.structure })),
+    logitScore
+  );
+  const modelIds = [...new Set(signals.flatMap((signal) => Object.keys(signal.modelScores)))].slice(0, 6);
+  const zModelScores = new Map(
+    modelIds.map((modelId) => [
+      modelId,
+      zScores(
+        signals.map((signal) => ({ id: signal.evaluationId, value: signal.modelScores[modelId] })),
+        logitScore
+      ),
+    ])
+  );
+  const baseRows = signals.map((signal) => {
+    const zText =
+      safeDefaults.beta.exact * (zExact.get(signal.evaluationId) ?? 0) +
+      safeDefaults.beta.sentence * (zSentence.get(signal.evaluationId) ?? 0) +
+      safeDefaults.beta.paragraph * (zParagraph.get(signal.evaluationId) ?? 0) +
+      safeDefaults.beta.structure * (zStructure.get(signal.evaluationId) ?? 0);
+    const modelZValues = modelIds.map((modelId) => zModelScores.get(modelId)?.get(signal.evaluationId) ?? 0);
+    const zAiMean = modelZValues.length ? mean(modelZValues) : 0;
+    const zAiMax = modelZValues.length ? Math.max(...modelZValues) : 0;
+    const zAi = (1 - safeDefaults.theta) * zAiMean + safeDefaults.theta * zAiMax;
+    const zSim = safeDefaults.lambda * zText + (1 - safeDefaults.lambda) * zAi;
+    const zAiesValue = zAies.get(signal.evaluationId) ?? 0;
+
+    return {
+      ...signal,
+      zAies: zAiesValue,
+      zSim,
+      zIntRaw: Math.max(zAiesValue, 0) * Math.max(zSim, 0),
+    };
+  });
+  const zInt = zScores(baseRows.map((row) => ({ id: row.evaluationId, value: row.zIntRaw })));
+
+  return baseRows.map<SafeTuningResult>((row) => {
+    const zS = row.zSim + safeDefaults.wA * row.zAies + safeDefaults.wInt * (zInt.get(row.evaluationId) ?? 0);
+    const kernel = -Math.tanh(safeDefaults.k * zS);
+    const rawScore =
+      row.aies +
+      safeDefaults.rho *
+        (Math.max(kernel, 0) * (safeDefaults.maxScore - row.aies) + Math.min(kernel, 0) * row.aies);
+    const rawDelta = rawScore - row.aies;
+    const cappedDelta = Math.max(-safeDefaults.hardCap, Math.min(safeDefaults.hardCap, rawDelta));
+    const tunedScore = clampScore(row.aies + cappedDelta);
+    const notes = [
+      signals.length < 30 ? "소규모 코호트라 참고용으로 사용하세요." : "코호트 기준 보정값입니다.",
+      Math.abs(rawDelta) > safeDefaults.hardCap ? `하드캡 ±${safeDefaults.hardCap}점 적용` : "",
+    ].filter(Boolean);
+
+    return {
+      evaluationId: row.evaluationId,
+      score: Math.round(tunedScore * 10) / 10,
+      delta: Math.round(cappedDelta * 10) / 10,
+      note: notes.join(" · "),
+    };
+  });
 }
 
 function splitRawParagraphs(value: string) {
@@ -3154,6 +3374,124 @@ function Reports({
         ) : (
           <p className="muted">왼쪽 목록에서 학생을 선택하세요.</p>
         )}
+      </article>
+    </section>
+  );
+}
+
+function SafeModelGuide() {
+  return (
+    <section className="safe-guide">
+      <article className="safe-hero">
+        <div>
+          <p className="eyebrow">Rubrix Tuning Mode</p>
+          <h2>SAFE Model</h2>
+          <p>
+            SAFE는 Similarity and AI Footprint Evaluation Model의 약자입니다. AI 평가점수에 표절 유사도와
+            AI 생성 유사도를 결합해, 동일 과제 제출자 집단 안에서 Rubrix Tuning Score를 계산합니다.
+          </p>
+        </div>
+        <div className="safe-hero-metric">
+          <span>출력</span>
+          <strong>RTS</strong>
+          <small>Rubrix Tuning Score</small>
+        </div>
+      </article>
+
+      <div className="safe-grid">
+        <article className="panel">
+          <h2>모델 목적</h2>
+          <p className="muted">
+            SAFE는 학생의 부정행위를 단정하는 모델이 아니라, 평가자가 검토할 수 있는 점수 보정 신호를
+            제공합니다. 기준은 절대 유사도가 아니라 같은 과제 코호트 내 상대 위치입니다.
+          </p>
+          <div className="safe-principles">
+            {["코호트 상대성", "유계 보정", "로짓 변환", "품질×유사 상호작용", "단일 모델 과적합 탐지"].map(
+              (item) => (
+                <span key={item}>{item}</span>
+              )
+            )}
+          </div>
+        </article>
+
+        <article className="panel">
+          <h2>입력 신호</h2>
+          <div className="safe-signal-list">
+            <div>
+              <strong>AIES</strong>
+              <span>AI가 평가한 순수 평가점수</span>
+            </div>
+            <div>
+              <strong>ST · SP · PP · FP</strong>
+              <span>문장일치, 문장유사, 문단유사, 구조유사</span>
+            </div>
+            <div>
+              <strong>AI Footprint</strong>
+              <span>최대 6개 AI Baseline 모델과의 유사도</span>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <article className="panel">
+        <div className="panel-title">
+          <div>
+            <h2>계산 흐름</h2>
+            <p className="muted">Rubrix Tuning 버튼을 누르면 선택된 과제의 미확정 평가 결과를 코호트로 계산합니다.</p>
+          </div>
+        </div>
+        <div className="safe-flow">
+          {[
+            ["1", "신호 표준화", "유사도 신호는 로짓 변환 후 z-score로 변환합니다."],
+            ["2", "유사도 위험 합성", "텍스트 위험과 AI 위험을 각각 계산합니다."],
+            ["3", "품질×유사 상호작용", "고품질이면서 고유사인 경우 추가 위험으로 봅니다."],
+            ["4", "복합 위험 지수", "Z_sim, AIES, 상호작용 항을 결합합니다."],
+            ["5", "조정 커널", "g = -tanh(k · Z_S)로 보정 방향과 강도를 정합니다."],
+            ["6", "RTS 계산", "잔여 여유분 기반으로 가점·감점을 제한합니다."],
+            ["7", "가드레일", "소규모 코호트 경고와 최종 하드캡을 적용합니다."],
+          ].map(([step, title, text]) => (
+            <div className="safe-flow-step" key={step}>
+              <b>{step}</b>
+              <strong>{title}</strong>
+              <span>{text}</span>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <div className="safe-grid">
+        <article className="panel">
+          <h2>운영 기본값</h2>
+          <div className="safe-table">
+            <div><span>k</span><strong>1.0</strong><small>커널 기울기</small></div>
+            <div><span>ρ</span><strong>0.15</strong><small>최대 조정 비율</small></div>
+            <div><span>λ</span><strong>0.50</strong><small>표절 vs AI 균형</small></div>
+            <div><span>θ</span><strong>0.30</strong><small>최유사 모델 반영</small></div>
+            <div><span>w_int</span><strong>0.50</strong><small>품질×유사 상호작용</small></div>
+            <div><span>Hard Cap</span><strong>±8</strong><small>최종 보정 상한</small></div>
+          </div>
+        </article>
+
+        <article className="panel">
+          <h2>운영 가드레일</h2>
+          <ul className="safe-bullets">
+            <li>권장 코호트 규모는 30명 이상입니다.</li>
+            <li>30명 미만도 계산은 가능하지만 참고값으로 표시합니다.</li>
+            <li>Rubrix Tuning Score는 최종 판정이 아니라 평가자 검토용 보정 신호입니다.</li>
+            <li>최종조정점수, 피드백, 학생용 보고서는 평가자가 직접 확정합니다.</li>
+          </ul>
+        </article>
+      </div>
+
+      <article className="panel safe-formula-panel">
+        <h2>핵심 수식</h2>
+        <div className="safe-formulas">
+          <code>Z_sim = λ·Z_text + (1−λ)·Z_ai</code>
+          <code>Z_int = z(ReLU(z_AIES) · ReLU(Z_sim))</code>
+          <code>Z_S = Z_sim + w_A·z_AIES + w_int·Z_int</code>
+          <code>g = −tanh(k · Z_S)</code>
+          <code>RTS = AIES + ρ·[max(g,0)(M−AIES) + min(g,0)AIES]</code>
+        </div>
       </article>
     </section>
   );
