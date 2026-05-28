@@ -1031,6 +1031,112 @@ h2 {
   padding: 0 12px;
 }
 
+.similarity-mode span {
+  display: grid;
+  gap: 3px;
+}
+
+.similarity-mode small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.ai-diagnosis-check {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+}
+
+.ai-score-table {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-score-head,
+.ai-score-row {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(80px, 0.35fr) minmax(320px, 1.8fr);
+}
+
+.ai-score-head {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 900;
+  padding: 0 10px;
+}
+
+.ai-score-row {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  min-height: 52px;
+  padding: 10px;
+}
+
+.ai-score-row b {
+  color: #1d4ed8;
+  font-size: 20px;
+}
+
+.ai-score-row span {
+  color: #475569;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.evaluation-score-strip {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.evaluation-score-strip div {
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.evaluation-score-strip span,
+.evaluation-score-strip strong {
+  display: block;
+}
+
+.evaluation-score-strip span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+  margin-bottom: 5px;
+}
+
+.evaluation-score-strip strong {
+  color: #0f172a;
+  font-size: 20px;
+}
+
+.model-score-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.model-score-list span {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  color: #1e3a8a;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 6px 10px;
+}
+
 .similarity-list {
   display: grid;
   gap: 8px;
@@ -1233,6 +1339,9 @@ h2 {
   .similarity-mode-grid,
   .similarity-score-grid,
   .comparison-text-grid,
+  .evaluation-score-strip,
+  .ai-score-head,
+  .ai-score-row,
   .form-grid {
     grid-template-columns: 1fr;
   }

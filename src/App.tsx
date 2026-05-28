@@ -1,6 +1,8 @@
 import {
   BarChart3,
   BookOpenCheck,
+  Bot,
+  BrainCircuit,
   CheckCircle2,
   ClipboardCheck,
   FileText,
@@ -20,8 +22,10 @@ type MenuKey =
   | "rubrics"
   | "assignments"
   | "submissions"
-  | "evaluations"
+  | "aiDiagnosis"
+  | "aiGeneratedScore"
   | "analysis"
+  | "evaluations"
   | "reports"
   | "settings";
 
@@ -104,6 +108,49 @@ type SimilarityAnalysis = {
   modes: SimilarityMode[];
   submissionCount: number;
   pairs: SimilarityPair[];
+  submissionSummaries?: SimilaritySubmissionSummary[];
+};
+
+type SimilaritySubmissionSummary = {
+  submissionId: string;
+  score: number;
+  exactScore: number;
+  sentenceScore: number;
+  paragraphScore: number;
+  structureScore: number;
+};
+
+type AiBaseline = {
+  id: string;
+  assignmentId: string;
+  type: string;
+  model: string;
+  enabled: boolean;
+  text: string;
+};
+
+type AiGeneratedModelScore = {
+  baselineId: string;
+  type: string;
+  model: string;
+  score: number;
+  exactScore: number;
+  sentenceScore: number;
+  paragraphScore: number;
+  structureScore: number;
+};
+
+type AiGeneratedSubmissionScore = {
+  submissionId: string;
+  averageScore: number;
+  modelScores: AiGeneratedModelScore[];
+};
+
+type AiGeneratedResult = {
+  id: string;
+  assignmentId: string;
+  createdAt: string;
+  scores: AiGeneratedSubmissionScore[];
 };
 
 type TaskType = {
@@ -300,8 +347,10 @@ const menu = [
   { key: "rubrics", label: "Rubric Sets", icon: BookOpenCheck },
   { key: "assignments", label: "Assignments", icon: ClipboardCheck },
   { key: "submissions", label: "Submissions", icon: Upload },
-  { key: "evaluations", label: "Evaluations", icon: Sparkles },
+  { key: "aiDiagnosis", label: "AI Diagnosis", icon: Bot },
+  { key: "aiGeneratedScore", label: "AI Generated Score", icon: BrainCircuit },
   { key: "analysis", label: "Analysis", icon: SearchCheck },
+  { key: "evaluations", label: "Evaluations", icon: Sparkles },
   { key: "reports", label: "Reports", icon: BarChart3 },
   { key: "settings", label: "Settings", icon: Settings },
 ] satisfies { key: MenuKey; label: string; icon: typeof LayoutDashboard }[];
@@ -440,6 +489,58 @@ function structureParagraphIndexes(leftText: string, rightText: string) {
   return indexes.slice(0, 30);
 }
 
+function compareTexts(leftText: string, rightText: string) {
+  const leftSentences = splitSentences(leftText);
+  const rightSentences = splitSentences(rightText);
+  const leftParagraphs = splitParagraphs(leftText);
+  const rightParagraphs = splitParagraphs(rightText);
+  const exact = exactSimilarity(leftSentences, rightSentences);
+  const sentenceScore = averageBestSimilarity(leftSentences, rightSentences);
+  const paragraphScore = averageBestSimilarity(leftParagraphs, rightParagraphs);
+  const structureScore = sequenceSimilarity(structureSignature(leftText), structureSignature(rightText));
+  const score = (exact.score + sentenceScore + paragraphScore + structureScore) / 4;
+
+  return {
+    score: Math.round(score * 100),
+    exactScore: Math.round(exact.score * 100),
+    sentenceScore: Math.round(sentenceScore * 100),
+    paragraphScore: Math.round(paragraphScore * 100),
+    structureScore: Math.round(structureScore * 100),
+  };
+}
+
+function averageTopTenPercent(values: number[]) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((left, right) => right - left);
+  const takeCount = Math.max(1, Math.ceil(sorted.length * 0.1));
+  const topValues = sorted.slice(0, takeCount);
+  return Math.round(topValues.reduce((total, value) => total + value, 0) / topValues.length);
+}
+
+function createSubmissionSimilaritySummaries(
+  submissions: Submission[],
+  pairs: SimilarityPair[]
+): SimilaritySubmissionSummary[] {
+  return submissions.map((submission) => {
+    const relatedPairs = pairs.filter(
+      (pair) => pair.submissionAId === submission.id || pair.submissionBId === submission.id
+    );
+    const exactScore = averageTopTenPercent(relatedPairs.map((pair) => pair.exactScore));
+    const sentenceScore = averageTopTenPercent(relatedPairs.map((pair) => pair.sentenceScore));
+    const paragraphScore = averageTopTenPercent(relatedPairs.map((pair) => pair.paragraphScore));
+    const structureScore = averageTopTenPercent(relatedPairs.map((pair) => pair.structureScore));
+
+    return {
+      submissionId: submission.id,
+      exactScore,
+      sentenceScore,
+      paragraphScore,
+      structureScore,
+      score: Math.round((exactScore + sentenceScore + paragraphScore + structureScore) / 4),
+    };
+  });
+}
+
 function sequenceSimilarity(left: string[], right: string[]) {
   if (left.length === 0 || right.length === 0) return 0;
   const rows = Array.from({ length: left.length + 1 }, () => Array(right.length + 1).fill(0));
@@ -503,14 +604,30 @@ function analyzeSubmissionSimilarity(
     }
   }
 
+  const sortedPairs = pairs.sort((left, right) => right.score - left.score);
+
   return {
     id: crypto.randomUUID(),
     assignmentId,
     createdAt: new Date().toISOString(),
     modes,
     submissionCount: targetSubmissions.length,
-    pairs: pairs.sort((left, right) => right.score - left.score).slice(0, 100),
+    pairs: sortedPairs.slice(0, 100),
+    submissionSummaries: createSubmissionSimilaritySummaries(targetSubmissions, sortedPairs),
   };
+}
+
+async function readApiJson(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (!contentType.includes("application/json")) {
+    const preview = (await response.text()).slice(0, 80);
+    throw new Error(
+      `/api/state가 JSON이 아닌 응답을 반환했습니다. 현재 서버가 API 없이 실행 중일 수 있습니다. 응답: ${preview}`
+    );
+  }
+
+  return response.json();
 }
 
 export function App() {
@@ -521,6 +638,8 @@ export function App() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [similarityAnalyses, setSimilarityAnalyses] = useState<SimilarityAnalysis[]>([]);
+  const [aiBaselines, setAiBaselines] = useState<AiBaseline[]>([]);
+  const [aiGeneratedResults, setAiGeneratedResults] = useState<AiGeneratedResult[]>([]);
   const [selectedRubricId, setSelectedRubricId] = useState(seedRubric.id);
   const [aiModel, setAiModel] = useState("gpt-5.4-mini");
   const [evaluatingSubmissionIds, setEvaluatingSubmissionIds] = useState<string[]>([]);
@@ -534,7 +653,7 @@ export function App() {
     async function loadState() {
       try {
         const response = await fetch("/api/state");
-        const payload = await response.json();
+        const payload = await readApiJson(response);
 
         if (!response.ok) {
           throw new Error(payload.error || "저장된 데이터를 불러오지 못했습니다.");
@@ -547,6 +666,8 @@ export function App() {
           setSubmissions(payload.data.submissions ?? []);
           setEvaluations(payload.data.evaluations ?? []);
           setSimilarityAnalyses(payload.data.similarityAnalyses ?? []);
+          setAiBaselines(payload.data.aiBaselines ?? []);
+          setAiGeneratedResults(payload.data.aiGeneratedResults ?? []);
           setSelectedRubricId(payload.data.selectedRubricId ?? seedRubric.id);
           setAiModel(payload.data.aiModel ?? "gpt-5.4-mini");
         }
@@ -590,12 +711,14 @@ export function App() {
               submissions,
               evaluations,
               similarityAnalyses,
+              aiBaselines,
+              aiGeneratedResults,
               selectedRubricId,
               aiModel,
             },
           }),
         });
-        const payload = await response.json();
+        const payload = await readApiJson(response);
 
         if (!response.ok) {
           throw new Error(payload.error || "데이터 저장에 실패했습니다.");
@@ -611,6 +734,8 @@ export function App() {
   }, [
     aiModel,
     assignments,
+    aiBaselines,
+    aiGeneratedResults,
     evaluations,
     isStateLoaded,
     rubrics,
@@ -618,6 +743,8 @@ export function App() {
     similarityAnalyses,
     submissions,
     taskTypes,
+    aiBaselines,
+    aiGeneratedResults,
   ]);
 
   const stats = useMemo(
@@ -689,6 +816,8 @@ export function App() {
     if (!window.confirm("이 과제를 삭제할까요?")) return;
     setAssignments((current) => current.filter((assignment) => assignment.id !== assignmentId));
     setSimilarityAnalyses((current) => current.filter((analysis) => analysis.assignmentId !== assignmentId));
+    setAiBaselines((current) => current.filter((baseline) => baseline.assignmentId !== assignmentId));
+    setAiGeneratedResults((current) => current.filter((result) => result.assignmentId !== assignmentId));
   }
 
   function deleteSubmission(submissionId: string) {
@@ -701,6 +830,15 @@ export function App() {
         pairs: analysis.pairs.filter(
           (pair) => pair.submissionAId !== submissionId && pair.submissionBId !== submissionId
         ),
+        submissionSummaries: (analysis.submissionSummaries ?? []).filter(
+          (summary) => summary.submissionId !== submissionId
+        ),
+      }))
+    );
+    setAiGeneratedResults((current) =>
+      current.map((result) => ({
+        ...result,
+        scores: result.scores.filter((score) => score.submissionId !== submissionId),
       }))
     );
   }
@@ -838,7 +976,7 @@ export function App() {
         },
         ...current,
       ]);
-      setActiveMenu("evaluations");
+      setActiveMenu("analysis");
     } finally {
       setEvaluatingSubmissionIds((current) => current.filter((submissionId) => submissionId !== submission.id));
     }
@@ -856,6 +994,77 @@ export function App() {
     const analysis = analyzeSubmissionSimilarity(assignmentId, modes, submissions);
     setSimilarityAnalyses((current) => [
       analysis,
+      ...current.filter((item) => item.assignmentId !== assignmentId),
+    ]);
+  }
+
+  function addAiBaseline(assignmentId: string, type: string, model: string) {
+    if (!assignmentId) return;
+    setAiBaselines((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        assignmentId,
+        type: type.trim() || "ChatGPT",
+        model: model.trim() || "직접 입력 모델",
+        enabled: true,
+        text: "",
+      },
+    ]);
+  }
+
+  function updateAiBaseline(nextBaseline: AiBaseline) {
+    setAiBaselines((current) =>
+      current.map((baseline) => (baseline.id === nextBaseline.id ? nextBaseline : baseline))
+    );
+  }
+
+  function deleteAiBaseline(baselineId: string) {
+    if (!window.confirm("AI Baseline을 삭제할까요?")) return;
+    setAiBaselines((current) => current.filter((baseline) => baseline.id !== baselineId));
+    setAiGeneratedResults((current) =>
+      current.map((result) => ({
+        ...result,
+        scores: result.scores.map((score) => ({
+          ...score,
+          modelScores: score.modelScores.filter((modelScore) => modelScore.baselineId !== baselineId),
+        })),
+      }))
+    );
+  }
+
+  function runAiGeneratedDiagnosis(assignmentId: string) {
+    const assignmentSubmissions = submissions.filter((submission) => submission.assignmentId === assignmentId);
+    const baselines = aiBaselines.filter(
+      (baseline) => baseline.assignmentId === assignmentId && baseline.enabled && baseline.text.trim()
+    );
+
+    const result: AiGeneratedResult = {
+      id: crypto.randomUUID(),
+      assignmentId,
+      createdAt: new Date().toISOString(),
+      scores: assignmentSubmissions.map((submission) => {
+        const modelScores = baselines.map((baseline) => ({
+          baselineId: baseline.id,
+          type: baseline.type,
+          model: baseline.model,
+          ...compareTexts(submission.reportText, baseline.text),
+        }));
+        const averageScore =
+          modelScores.length === 0
+            ? 0
+            : Math.round(modelScores.reduce((total, score) => total + score.score, 0) / modelScores.length);
+
+        return {
+          submissionId: submission.id,
+          averageScore,
+          modelScores,
+        };
+      }),
+    };
+
+    setAiGeneratedResults((current) => [
+      result,
       ...current.filter((item) => item.assignmentId !== assignmentId),
     ]);
   }
@@ -938,12 +1147,24 @@ export function App() {
             deleteSubmission={deleteSubmission}
           />
         )}
-        {activeMenu === "evaluations" && (
-          <Evaluations
-            evaluations={evaluations}
+        {activeMenu === "aiDiagnosis" && (
+          <AiDiagnosis
+            assignments={assignments}
+            rubrics={rubrics}
+            taskTypes={taskTypes}
+            baselines={aiBaselines}
+            addBaseline={addAiBaseline}
+            updateBaseline={updateAiBaseline}
+            deleteBaseline={deleteAiBaseline}
+          />
+        )}
+        {activeMenu === "aiGeneratedScore" && (
+          <AiGeneratedScore
+            assignments={assignments}
             submissions={submissions}
-            finalizeEvaluation={finalizeEvaluation}
-            updateEvaluations={setEvaluations}
+            baselines={aiBaselines}
+            results={aiGeneratedResults}
+            runDiagnosis={runAiGeneratedDiagnosis}
           />
         )}
         {activeMenu === "analysis" && (
@@ -952,6 +1173,17 @@ export function App() {
             assignments={assignments}
             submissions={submissions}
             runSimilarityAnalysis={runSimilarityAnalysis}
+          />
+        )}
+        {activeMenu === "evaluations" && (
+          <Evaluations
+            evaluations={evaluations}
+            submissions={submissions}
+            assignments={assignments}
+            similarityAnalyses={similarityAnalyses}
+            aiGeneratedResults={aiGeneratedResults}
+            finalizeEvaluation={finalizeEvaluation}
+            updateEvaluations={setEvaluations}
           />
         )}
         {activeMenu === "reports" && (
@@ -1730,8 +1962,11 @@ function Submissions({
   const [fileName, setFileName] = useState("");
   const [reportText, setReportText] = useState("");
   const [selectedSubmissionId, setSelectedSubmissionId] = useState("");
+  const filteredSubmissions = submissions.filter(
+    (submission) => submission.assignmentId === (selectedAssignmentId || assignments[0]?.id)
+  );
   const selectedSubmission =
-    submissions.find((submission) => submission.id === selectedSubmissionId) ?? submissions[0];
+    filteredSubmissions.find((submission) => submission.id === selectedSubmissionId) ?? filteredSubmissions[0];
   const selectedSubmissionAssignment = assignments.find(
     (assignment) => assignment.id === selectedSubmission?.assignmentId
   );
@@ -1826,8 +2061,8 @@ function Submissions({
             <span>상태</span>
             <span>관리</span>
           </div>
-          {submissions.length === 0 ? <p className="muted">아직 등록된 제출물이 없습니다.</p> : null}
-          {submissions.map((submission) => {
+          {filteredSubmissions.length === 0 ? <p className="muted">선택한 과제에 등록된 제출물이 없습니다.</p> : null}
+          {filteredSubmissions.map((submission) => {
             const isEvaluated = evaluations.some((evaluation) => evaluation.submissionId === submission.id);
             const isEvaluating = evaluatingSubmissionIds.includes(submission.id);
             const assignment = assignments.find((item) => item.id === submission.assignmentId);
@@ -1901,18 +2136,318 @@ function Submissions({
   );
 }
 
+const defaultAiTypes = ["ChatGPT", "Claude", "Gemini"];
+const defaultAiModels: Record<string, string[]> = {
+  ChatGPT: ["gpt-5.4-mini", "gpt-5.1", "gpt-4.1"],
+  Claude: ["claude-sonnet-4.5", "claude-opus-4.1"],
+  Gemini: ["gemini-2.5-pro", "gemini-2.5-flash"],
+};
+
+function AiDiagnosis({
+  assignments,
+  rubrics,
+  taskTypes,
+  baselines,
+  addBaseline,
+  updateBaseline,
+  deleteBaseline,
+}: {
+  assignments: Assignment[];
+  rubrics: RubricSet[];
+  taskTypes: TaskType[];
+  baselines: AiBaseline[];
+  addBaseline: (assignmentId: string, type: string, model: string) => void;
+  updateBaseline: (baseline: AiBaseline) => void;
+  deleteBaseline: (baselineId: string) => void;
+}) {
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState(assignments[0]?.id ?? "");
+  const [selectedBaselineId, setSelectedBaselineId] = useState("");
+  const [aiType, setAiType] = useState(defaultAiTypes[0]);
+  const [customType, setCustomType] = useState("");
+  const [aiModelName, setAiModelName] = useState(defaultAiModels[defaultAiTypes[0]][0]);
+  const [customModel, setCustomModel] = useState("");
+  const selectedAssignment = assignments.find((assignment) => assignment.id === selectedAssignmentId) ?? assignments[0];
+  const selectedRubric = rubrics.find((rubric) => rubric.id === selectedAssignment?.rubricSetId);
+  const selectedTaskType = taskTypes.find((taskType) => taskType.id === selectedAssignment?.taskType);
+  const assignmentBaselines = baselines.filter((baseline) => baseline.assignmentId === selectedAssignment?.id);
+  const selectedBaseline =
+    assignmentBaselines.find((baseline) => baseline.id === selectedBaselineId) ?? assignmentBaselines[0];
+  const modelOptions = defaultAiModels[aiType] ?? [];
+
+  useEffect(() => {
+    if (!selectedAssignmentId && assignments[0]?.id) {
+      setSelectedAssignmentId(assignments[0].id);
+    }
+  }, [assignments, selectedAssignmentId]);
+
+  useEffect(() => {
+    setSelectedBaselineId(assignmentBaselines[0]?.id ?? "");
+  }, [selectedAssignment?.id, assignmentBaselines.length]);
+
+  function confirmAddBaseline() {
+    const type = aiType === "직접 입력" ? customType : aiType;
+    const model = aiModelName === "직접 입력" ? customModel : aiModelName;
+    addBaseline(selectedAssignment?.id ?? "", type, model);
+  }
+
+  return (
+    <section className="analysis-layout">
+      <article className="panel analysis-control-panel">
+        <div className="panel-title">
+          <div>
+            <h2>AI Diagnosis</h2>
+            <p className="muted">과제별 AI Baseline을 등록하고 관리합니다.</p>
+          </div>
+        </div>
+        <div className="form-grid compact-form">
+          <label className="field">
+            <span>과제</span>
+            <select value={selectedAssignment?.id ?? ""} onChange={(event) => setSelectedAssignmentId(event.target.value)}>
+              {assignments.map((assignment) => (
+                <option key={assignment.id} value={assignment.id}>
+                  {assignment.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="analysis-summary-card">
+            <span>과제유형</span>
+            <strong>{selectedTaskType?.name ?? "-"}</strong>
+          </div>
+          <div className="analysis-summary-card">
+            <span>평가세트</span>
+            <strong>{selectedRubric?.name ?? "-"}</strong>
+          </div>
+        </div>
+        <label className="check-row ai-diagnosis-check">
+          <input type="checkbox" checked={assignmentBaselines.some((baseline) => baseline.enabled)} readOnly />
+          <span>AI Diagnosis 사용</span>
+        </label>
+        <p className="muted">{selectedAssignment?.description ?? "과제 설명이 없습니다."}</p>
+        <div className="form-grid compact-form">
+          <label className="field">
+            <span>Type</span>
+            <select
+              value={aiType}
+              onChange={(event) => {
+                const nextType = event.target.value;
+                setAiType(nextType);
+                setAiModelName(defaultAiModels[nextType]?.[0] ?? "직접 입력");
+              }}
+            >
+              {[...defaultAiTypes, "직접 입력"].map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+          {aiType === "직접 입력" ? (
+            <label className="field">
+              <span>새 Type</span>
+              <input value={customType} onChange={(event) => setCustomType(event.target.value)} />
+            </label>
+          ) : null}
+          <label className="field">
+            <span>Model</span>
+            <select value={aiModelName} onChange={(event) => setAiModelName(event.target.value)}>
+              {[...modelOptions, "직접 입력"].map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </label>
+          {aiModelName === "직접 입력" ? (
+            <label className="field">
+              <span>새 Model</span>
+              <input value={customModel} onChange={(event) => setCustomModel(event.target.value)} />
+            </label>
+          ) : null}
+        </div>
+        <button className="primary-button" onClick={confirmAddBaseline}>
+          <Plus size={16} />
+          Baseline 추가
+        </button>
+      </article>
+
+      <article className="panel similarity-list-panel">
+        <h2>AI Baselines</h2>
+        <div className="similarity-list">
+          {assignmentBaselines.length === 0 ? <p className="muted">등록된 AI Baseline이 없습니다.</p> : null}
+          {assignmentBaselines.map((baseline) => (
+            <button
+              className={selectedBaseline?.id === baseline.id ? "similarity-row selected" : "similarity-row"}
+              key={baseline.id}
+              onClick={() => setSelectedBaselineId(baseline.id)}
+            >
+              <div>
+                <strong>
+                  {baseline.type} · {baseline.model}
+                </strong>
+                <span>{baseline.enabled ? "사용" : "미사용"} · {baseline.text.trim() ? "본문 입력됨" : "본문 없음"}</span>
+              </div>
+              <b>{baseline.text.length}</b>
+            </button>
+          ))}
+        </div>
+      </article>
+
+      <article className="panel similarity-detail-panel">
+        {selectedBaseline ? (
+          <>
+            <div className="panel-title">
+              <div>
+                <h2>{selectedBaseline.type} · {selectedBaseline.model}</h2>
+                <p className="muted">AI Baseline 텍스트를 붙여넣으세요.</p>
+              </div>
+              <button className="danger-button" onClick={() => deleteBaseline(selectedBaseline.id)}>
+                삭제
+              </button>
+            </div>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={selectedBaseline.enabled}
+                onChange={() => updateBaseline({ ...selectedBaseline, enabled: !selectedBaseline.enabled })}
+              />
+              <span>이 Baseline 사용</span>
+            </label>
+            <label className="field full">
+              <span>Baseline Text</span>
+              <textarea
+                className="report-editor"
+                value={selectedBaseline.text}
+                onChange={(event) => updateBaseline({ ...selectedBaseline, text: event.target.value })}
+                placeholder="선택한 AI 모델이 과제 내용으로 생성한 결과를 붙여넣으세요."
+              />
+            </label>
+          </>
+        ) : (
+          <p className="muted">왼쪽에서 Baseline을 선택하거나 새로 추가하세요.</p>
+        )}
+      </article>
+    </section>
+  );
+}
+
+function AiGeneratedScore({
+  assignments,
+  submissions,
+  baselines,
+  results,
+  runDiagnosis,
+}: {
+  assignments: Assignment[];
+  submissions: Submission[];
+  baselines: AiBaseline[];
+  results: AiGeneratedResult[];
+  runDiagnosis: (assignmentId: string) => void;
+}) {
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState(assignments[0]?.id ?? "");
+  const selectedAssignment = assignments.find((assignment) => assignment.id === selectedAssignmentId) ?? assignments[0];
+  const assignmentSubmissions = submissions.filter((submission) => submission.assignmentId === selectedAssignment?.id);
+  const assignmentBaselines = baselines.filter(
+    (baseline) => baseline.assignmentId === selectedAssignment?.id && baseline.enabled && baseline.text.trim()
+  );
+  const result = results.find((item) => item.assignmentId === selectedAssignment?.id);
+
+  return (
+    <article className="panel">
+      <div className="panel-title">
+        <div>
+          <h2>AI Generated Score</h2>
+          <p className="muted">학생 제출물과 AI Baseline의 유사도를 모델별로 비교합니다.</p>
+        </div>
+        <button
+          className="primary-button"
+          disabled={!selectedAssignment || assignmentSubmissions.length === 0 || assignmentBaselines.length === 0}
+          onClick={() => runDiagnosis(selectedAssignment.id)}
+        >
+          <BrainCircuit size={16} />
+          AI 진단 실행
+        </button>
+      </div>
+      <div className="form-grid compact-form">
+        <label className="field">
+          <span>과제</span>
+          <select value={selectedAssignment?.id ?? ""} onChange={(event) => setSelectedAssignmentId(event.target.value)}>
+            {assignments.map((assignment) => (
+              <option key={assignment.id} value={assignment.id}>
+                {assignment.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="analysis-summary-card">
+          <span>제출물</span>
+          <strong>{assignmentSubmissions.length}개</strong>
+        </div>
+        <div className="analysis-summary-card">
+          <span>AI Baseline</span>
+          <strong>{assignmentBaselines.length}개</strong>
+        </div>
+      </div>
+      <div className="ai-score-table">
+        <div className="ai-score-head">
+          <span>학생</span>
+          <span>평균</span>
+          <span>모델별 점수</span>
+        </div>
+        {assignmentSubmissions.map((submission) => {
+          const score = result?.scores.find((item) => item.submissionId === submission.id);
+          return (
+            <div className="ai-score-row" key={submission.id}>
+              <strong>{submission.studentName}</strong>
+              <b>{score ? `${score.averageScore}%` : "-"}</b>
+              <span>
+                {score?.modelScores.length
+                  ? score.modelScores.map((modelScore) => `${modelScore.type}/${modelScore.model}: ${modelScore.score}%`).join(" · ")
+                  : "아직 진단 결과가 없습니다."}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
 function Evaluations({
   evaluations,
   submissions,
+  assignments,
+  similarityAnalyses,
+  aiGeneratedResults,
   finalizeEvaluation,
   updateEvaluations,
 }: {
   evaluations: Evaluation[];
   submissions: Submission[];
+  assignments: Assignment[];
+  similarityAnalyses: SimilarityAnalysis[];
+  aiGeneratedResults: AiGeneratedResult[];
   finalizeEvaluation: (evaluationId: string) => void;
   updateEvaluations: React.Dispatch<React.SetStateAction<Evaluation[]>>;
 }) {
   const pendingEvaluations = evaluations.filter((evaluation) => evaluation.status !== "finalized");
+  const [selectedEvaluationId, setSelectedEvaluationId] = useState(pendingEvaluations[0]?.id ?? "");
+  const selectedEvaluation =
+    pendingEvaluations.find((evaluation) => evaluation.id === selectedEvaluationId) ?? pendingEvaluations[0];
+  const selectedSubmission = submissions.find((submission) => submission.id === selectedEvaluation?.submissionId);
+  const selectedAssignment = assignments.find((assignment) => assignment.id === selectedSubmission?.assignmentId);
+  const similaritySummary = similarityAnalyses
+    .find((analysis) => analysis.assignmentId === selectedAssignment?.id)
+    ?.submissionSummaries?.find((summary) => summary.submissionId === selectedSubmission?.id);
+  const aiGeneratedScore = aiGeneratedResults
+    .find((result) => result.assignmentId === selectedAssignment?.id)
+    ?.scores.find((score) => score.submissionId === selectedSubmission?.id);
+
+  useEffect(() => {
+    if (!selectedEvaluationId && pendingEvaluations[0]?.id) {
+      setSelectedEvaluationId(pendingEvaluations[0].id);
+    }
+  }, [pendingEvaluations, selectedEvaluationId]);
 
   function updateEvaluation(evaluationId: string, field: "totalScore" | "feedback" | "studentReport", value: string) {
     updateEvaluations((current) =>
@@ -1924,6 +2459,89 @@ function Evaluations({
             }
           : evaluation
       )
+    );
+  }
+
+  if (selectedEvaluation) {
+    return (
+      <section className="reports-layout">
+        <article className="panel">
+          <h2>Evaluations</h2>
+          <div className="compact-report-list">
+            {pendingEvaluations.map((evaluation) => {
+              const submission = submissions.find((item) => item.id === evaluation.submissionId);
+              return (
+                <button
+                  className={selectedEvaluation.id === evaluation.id ? "compact-report-row selected" : "compact-report-row"}
+                  key={evaluation.id}
+                  onClick={() => setSelectedEvaluationId(evaluation.id)}
+                >
+                  <strong>{submission?.studentName ?? "알 수 없는 학생"}</strong>
+                  <span>{evaluation.totalScore}점</span>
+                  <span>{statusLabel(evaluation.status)}</span>
+                  <span>{submission?.studentIdentifier ?? "-"}</span>
+                </button>
+              );
+            })}
+          </div>
+        </article>
+
+        <article className="panel report-detail-panel">
+          <div className="panel-title">
+            <div>
+              <h2>{selectedSubmission?.studentName ?? "알 수 없는 학생"}</h2>
+              <p className="muted">{selectedAssignment?.title ?? "-"}</p>
+            </div>
+            <button className="secondary-button" onClick={() => finalizeEvaluation(selectedEvaluation.id)}>
+              <CheckCircle2 size={16} />
+              평가완료
+            </button>
+          </div>
+          <div className="evaluation-score-strip">
+            <div><span>AI 평가점수</span><strong>{selectedEvaluation.totalScore}</strong></div>
+            <div><span>AI Generated</span><strong>{aiGeneratedScore ? `${aiGeneratedScore.averageScore}%` : "-"}</strong></div>
+            <div><span>Analysis 종합</span><strong>{similaritySummary ? `${similaritySummary.score}%` : "-"}</strong></div>
+            <div><span>문장일치</span><strong>{similaritySummary ? `${similaritySummary.exactScore}%` : "-"}</strong></div>
+            <div><span>문장유사</span><strong>{similaritySummary ? `${similaritySummary.sentenceScore}%` : "-"}</strong></div>
+            <div><span>문단유사</span><strong>{similaritySummary ? `${similaritySummary.paragraphScore}%` : "-"}</strong></div>
+            <div><span>구조유사</span><strong>{similaritySummary ? `${similaritySummary.structureScore}%` : "-"}</strong></div>
+          </div>
+          {aiGeneratedScore?.modelScores.length ? (
+            <div className="model-score-list">
+              {aiGeneratedScore.modelScores.map((modelScore) => (
+                <span key={modelScore.baselineId}>
+                  {modelScore.type}/{modelScore.model}: {modelScore.score}%
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <label className="field score-field">
+            <span>최종 조정 점수</span>
+            <input
+              min="0"
+              max="100"
+              type="number"
+              value={selectedEvaluation.totalScore}
+              onChange={(event) => updateEvaluation(selectedEvaluation.id, "totalScore", event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>피드백</span>
+            <textarea
+              value={selectedEvaluation.feedback}
+              onChange={(event) => updateEvaluation(selectedEvaluation.id, "feedback", event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>학생용 보고서</span>
+            <textarea
+              className="report-editor"
+              value={selectedEvaluation.studentReport}
+              onChange={(event) => updateEvaluation(selectedEvaluation.id, "studentReport", event.target.value)}
+            />
+          </label>
+        </article>
+      </section>
     );
   }
 
@@ -1988,6 +2606,13 @@ const similarityModeLabels: Record<SimilarityMode, string> = {
   sentence: "Sentence Similarity",
   paragraph: "Paragraph Similarity",
   structure: "Structure Similarity",
+};
+
+const similarityModeDescriptions: Record<SimilarityMode, string> = {
+  exact: "완전히 같은 문장을 찾습니다.",
+  sentence: "표현이 조금 달라도 비슷한 문장을 찾습니다.",
+  paragraph: "문단 단위의 내용 유사성을 봅니다.",
+  structure: "문단 길이와 전개 순서의 유사성을 봅니다.",
 };
 
 function similarityRiskLabel(score: number) {
@@ -2155,7 +2780,10 @@ function Analysis({
           {(Object.keys(similarityModeLabels) as SimilarityMode[]).map((mode) => (
             <label className="similarity-mode" key={mode}>
               <input type="checkbox" checked={selectedModes.includes(mode)} onChange={() => toggleMode(mode)} />
-              <span>{similarityModeLabels[mode]}</span>
+              <span>
+                <strong>{similarityModeLabels[mode]}</strong>
+                <small>{similarityModeDescriptions[mode]}</small>
+              </span>
             </label>
           ))}
         </div>
