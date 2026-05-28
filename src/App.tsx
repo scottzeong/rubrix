@@ -356,7 +356,7 @@ const menu = [
 ] satisfies { key: MenuKey; label: string; icon: typeof LayoutDashboard }[];
 
 function statusLabel(status: Evaluation["status"]) {
-  return status === "finalized" ? "최종 확정" : "AI 평가 완료";
+  return status === "finalized" ? "최종 확정" : "AI완료";
 }
 
 function normalizeText(value: string) {
@@ -2350,7 +2350,18 @@ function AiGeneratedScore({
   const assignmentBaselines = baselines.filter(
     (baseline) => baseline.assignmentId === selectedAssignment?.id && baseline.enabled && baseline.text.trim()
   );
+  const modelColumns = assignmentBaselines.slice(0, 6);
   const result = results.find((item) => item.assignmentId === selectedAssignment?.id);
+  const [isRunningDiagnosis, setIsRunningDiagnosis] = useState(false);
+
+  function handleRunDiagnosis() {
+    if (!selectedAssignment || isRunningDiagnosis) return;
+    setIsRunningDiagnosis(true);
+    window.setTimeout(() => {
+      runDiagnosis(selectedAssignment.id);
+      setIsRunningDiagnosis(false);
+    }, 50);
+  }
 
   return (
     <article className="panel">
@@ -2361,10 +2372,11 @@ function AiGeneratedScore({
         </div>
         <button
           className="primary-button"
-          disabled={!selectedAssignment || assignmentSubmissions.length === 0 || assignmentBaselines.length === 0}
-          onClick={() => runDiagnosis(selectedAssignment.id)}
+          disabled={!selectedAssignment || assignmentSubmissions.length === 0 || assignmentBaselines.length === 0 || isRunningDiagnosis}
+          onClick={handleRunDiagnosis}
         >
-          <BrainCircuit size={16} />
+          {isRunningDiagnosis ? <span className="button-spinner" /> : <BrainCircuit size={16} />}
+          {isRunningDiagnosis ? "처리 중" : "AI 진단 실행"}
           AI 진단 실행
         </button>
       </div>
@@ -2394,13 +2406,22 @@ function AiGeneratedScore({
           <span>평균</span>
           <span>모델별 점수</span>
         </div>
+        <div className="ai-score-model-head">
+          {modelColumns.map((baseline) => (
+            <span key={baseline.id}>{modelColumnLabel(baseline)}</span>
+          ))}
+        </div>
         {assignmentSubmissions.map((submission) => {
           const score = result?.scores.find((item) => item.submissionId === submission.id);
           return (
             <div className="ai-score-row" key={submission.id}>
               <strong>{submission.studentName}</strong>
               <ScoreBadge score={score?.averageScore} />
-              <div className="model-group-list">
+              {modelColumns.map((baseline) => {
+                const modelScore = score?.modelScores.find((item) => item.baselineId === baseline.id);
+                return <ScoreBadge key={baseline.id} score={modelScore?.score} />;
+              })}
+              <div className="model-group-list legacy-model-group-list">
                 {score?.modelScores.length ? (
                   Object.entries(groupModelScores(score.modelScores)).map(([type, modelScores]) => (
                     <div className="model-group" key={type}>
@@ -2461,6 +2482,7 @@ function Evaluations({
     .find((result) => result.assignmentId === selectedAssignment?.id)
     ?.scores.find((score) => score.submissionId === selectedSubmission?.id);
   const groupedAiGeneratedScores = groupModelScores(aiGeneratedScore?.modelScores ?? []);
+  const evaluationModelColumns = (aiGeneratedScore?.modelScores ?? []).slice(0, 6);
 
   useEffect(() => {
     if (!selectedEvaluationId && pendingEvaluations[0]?.id) {
@@ -2528,6 +2550,16 @@ function Evaluations({
             <div><span>구조유사</span><ScoreBadge score={similaritySummary?.structureScore} /></div>
           </div>
           <div className="evaluation-model-groups">
+            <div className="evaluation-model-score-grid">
+              {evaluationModelColumns.map((modelScore) => (
+                <div key={modelScore.baselineId}>
+                  <span>{modelScore.type}</span>
+                  <strong>{modelScore.model}</strong>
+                  <ScoreBadge score={modelScore.score} />
+                </div>
+              ))}
+            </div>
+            <div className="legacy-model-group-list">
             {aiGeneratedScore?.modelScores.length ? (
               Object.entries(groupedAiGeneratedScores).map(([type, modelScores]) => (
                 <div className="model-group" key={type}>
@@ -2544,6 +2576,7 @@ function Evaluations({
             ) : (
               <span className="muted">AI Generated Score 결과가 없습니다.</span>
             )}
+            </div>
           </div>
           <div className="tuning-score-row">
             <label className="field score-field">
@@ -2706,6 +2739,10 @@ function groupModelScores(modelScores: AiGeneratedModelScore[] = []) {
   }, {});
 }
 
+function modelColumnLabel(baseline: AiBaseline) {
+  return `${baseline.type}\n${baseline.model}`;
+}
+
 function splitRawParagraphs(value: string) {
   return value
     .split(/\n\s*\n+/)
@@ -2789,6 +2826,7 @@ function Analysis({
     "paragraph",
     "structure",
   ]);
+  const [isRunningAnalysis, setIsRunningAnalysis] = useState(false);
   const selectedAssignment = assignments.find((assignment) => assignment.id === selectedAssignmentId) ?? assignments[0];
   const assignmentSubmissions = submissions.filter((submission) => submission.assignmentId === selectedAssignment?.id);
   const analysis = analyses.find((item) => item.assignmentId === selectedAssignment?.id);
@@ -2815,8 +2853,12 @@ function Analysis({
   }
 
   function runAnalysis() {
-    if (!selectedAssignment || selectedModes.length === 0 || assignmentSubmissions.length < 2) return;
-    runSimilarityAnalysis(selectedAssignment.id, selectedModes);
+    if (!selectedAssignment || selectedModes.length === 0 || assignmentSubmissions.length < 2 || isRunningAnalysis) return;
+    setIsRunningAnalysis(true);
+    window.setTimeout(() => {
+      runSimilarityAnalysis(selectedAssignment.id, selectedModes);
+      setIsRunningAnalysis(false);
+    }, 50);
   }
 
   return (
@@ -2829,11 +2871,11 @@ function Analysis({
           </div>
           <button
             className="primary-button"
-            disabled={assignmentSubmissions.length < 2 || selectedModes.length === 0}
+            disabled={assignmentSubmissions.length < 2 || selectedModes.length === 0 || isRunningAnalysis}
             onClick={runAnalysis}
           >
-            <SearchCheck size={16} />
-            분석 실행
+            {isRunningAnalysis ? <span className="button-spinner" /> : <SearchCheck size={16} />}
+            {isRunningAnalysis ? "처리 중" : "분석 실행"}
           </button>
         </div>
         <div className="form-grid compact-form">
