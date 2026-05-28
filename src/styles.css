@@ -858,12 +858,21 @@ h2 {
   gap: 8px;
 }
 
+.compact-assignment-filter {
+  margin: 12px 0 16px;
+}
+
 .compact-report-head,
 .compact-report-row {
   align-items: center;
   display: grid;
   gap: 10px;
   grid-template-columns: 0.9fr 1.1fr 0.45fr 0.75fr;
+}
+
+.report-head,
+.report-row {
+  grid-template-columns: minmax(120px, 1fr) minmax(64px, 0.4fr) minmax(92px, 0.65fr);
 }
 
 .submission-head,
@@ -920,6 +929,14 @@ h2 {
 .compact-report-row span {
   color: #475569;
   overflow-wrap: anywhere;
+}
+
+.panel-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .report-detail-panel {
@@ -1084,6 +1101,7 @@ h2 {
   font-size: 13px;
   font-weight: 900;
   padding: 0 10px;
+  white-space: pre-line;
 }
 
 .ai-score-row {
@@ -1098,7 +1116,7 @@ h2 {
   font-size: 20px;
 }
 
-.ai-score-row > span {
+.ai-score-row > span:not(.score-badge) {
   display: none;
 }
 

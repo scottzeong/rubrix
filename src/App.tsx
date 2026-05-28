@@ -2377,7 +2377,6 @@ function AiGeneratedScore({
         >
           {isRunningDiagnosis ? <span className="button-spinner" /> : <BrainCircuit size={16} />}
           {isRunningDiagnosis ? "처리 중" : "AI 진단 실행"}
-          AI 진단 실행
         </button>
       </div>
       <div className="form-grid compact-form">
@@ -2404,9 +2403,6 @@ function AiGeneratedScore({
         <div className="ai-score-head">
           <span>학생</span>
           <span>평균</span>
-          <span>모델별 점수</span>
-        </div>
-        <div className="ai-score-model-head">
           {modelColumns.map((baseline) => (
             <span key={baseline.id}>{modelColumnLabel(baseline)}</span>
           ))}
@@ -2470,9 +2466,17 @@ function Evaluations({
   updateEvaluations: React.Dispatch<React.SetStateAction<Evaluation[]>>;
 }) {
   const pendingEvaluations = evaluations.filter((evaluation) => evaluation.status !== "finalized");
+  const [selectedAssignmentFilterId, setSelectedAssignmentFilterId] = useState(assignments[0]?.id ?? "");
   const [selectedEvaluationId, setSelectedEvaluationId] = useState(pendingEvaluations[0]?.id ?? "");
+  const [isRunningTuning, setIsRunningTuning] = useState(false);
+  const selectedFilterAssignment =
+    assignments.find((assignment) => assignment.id === selectedAssignmentFilterId) ?? assignments[0];
+  const filteredPendingEvaluations = pendingEvaluations.filter((evaluation) => {
+    const submission = submissions.find((item) => item.id === evaluation.submissionId);
+    return !selectedFilterAssignment || submission?.assignmentId === selectedFilterAssignment.id;
+  });
   const selectedEvaluation =
-    pendingEvaluations.find((evaluation) => evaluation.id === selectedEvaluationId) ?? pendingEvaluations[0];
+    filteredPendingEvaluations.find((evaluation) => evaluation.id === selectedEvaluationId) ?? filteredPendingEvaluations[0];
   const selectedSubmission = submissions.find((submission) => submission.id === selectedEvaluation?.submissionId);
   const selectedAssignment = assignments.find((assignment) => assignment.id === selectedSubmission?.assignmentId);
   const similaritySummary = similarityAnalyses
@@ -2485,10 +2489,26 @@ function Evaluations({
   const evaluationModelColumns = (aiGeneratedScore?.modelScores ?? []).slice(0, 6);
 
   useEffect(() => {
-    if (!selectedEvaluationId && pendingEvaluations[0]?.id) {
-      setSelectedEvaluationId(pendingEvaluations[0].id);
+    if (!selectedAssignmentFilterId && assignments[0]?.id) {
+      setSelectedAssignmentFilterId(assignments[0].id);
     }
-  }, [pendingEvaluations, selectedEvaluationId]);
+  }, [assignments, selectedAssignmentFilterId]);
+
+  useEffect(() => {
+    const hasSelectedEvaluation = filteredPendingEvaluations.some((evaluation) => evaluation.id === selectedEvaluationId);
+    if (!hasSelectedEvaluation && filteredPendingEvaluations[0]?.id) {
+      setSelectedEvaluationId(filteredPendingEvaluations[0].id);
+    }
+    if (!filteredPendingEvaluations.length && selectedEvaluationId) {
+      setSelectedEvaluationId("");
+    }
+  }, [selectedAssignmentFilterId, pendingEvaluations.length, selectedEvaluationId]);
+
+  function handleRunRubrixTuning() {
+    if (isRunningTuning) return;
+    setIsRunningTuning(true);
+    window.setTimeout(() => setIsRunningTuning(false), 350);
+  }
 
   function updateEvaluation(evaluationId: string, field: "totalScore" | "feedback" | "studentReport", value: string) {
     updateEvaluations((current) =>
@@ -2508,8 +2528,18 @@ function Evaluations({
       <section className="reports-layout">
         <article className="panel">
           <h2>Evaluations</h2>
+          <label className="field compact-assignment-filter">
+            <span>과제</span>
+            <select value={selectedFilterAssignment?.id ?? ""} onChange={(event) => setSelectedAssignmentFilterId(event.target.value)}>
+              {assignments.map((assignment) => (
+                <option key={assignment.id} value={assignment.id}>
+                  {assignment.title}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="compact-report-list">
-            {pendingEvaluations.map((evaluation) => {
+            {filteredPendingEvaluations.map((evaluation) => {
               const submission = submissions.find((item) => item.id === evaluation.submissionId);
               return (
                 <button
@@ -2533,10 +2563,16 @@ function Evaluations({
               <h2>{selectedSubmission?.studentName ?? "알 수 없는 학생"}</h2>
               <p className="muted">{selectedAssignment?.title ?? "-"}</p>
             </div>
-            <button className="secondary-button" onClick={() => finalizeEvaluation(selectedEvaluation.id)}>
-              <CheckCircle2 size={16} />
-              평가완료
-            </button>
+            <div className="panel-actions">
+              <button className="secondary-button" type="button" disabled={isRunningTuning} onClick={handleRunRubrixTuning}>
+                {isRunningTuning ? <span className="button-spinner" /> : <Sparkles size={16} />}
+                {isRunningTuning ? "처리 중" : "Rubrix Tuning"}
+              </button>
+              <button className="secondary-button" onClick={() => finalizeEvaluation(selectedEvaluation.id)}>
+                <CheckCircle2 size={16} />
+                평가완료
+              </button>
+            </div>
           </div>
           <div className="evaluation-score-row primary-score-row">
             <div><span>AI 평가점수</span><strong>{selectedEvaluation.totalScore}</strong></div>
@@ -2592,7 +2628,6 @@ function Evaluations({
             <div className="rubrix-tuning-box">
               <span>Rubrix Tuning Score</span>
               <strong>-</strong>
-              <button className="secondary-button" type="button">Tuning</button>
             </div>
           </div>
           <div className="evaluation-score-strip legacy-evaluation-score-strip">
@@ -2646,11 +2681,11 @@ function Evaluations({
   return (
     <article className="panel">
       <h2>AI 평가 결과</h2>
-      {pendingEvaluations.length === 0 ? (
+      {filteredPendingEvaluations.length === 0 ? (
         <p className="muted">검토할 평가 결과가 없습니다. 최종확정된 결과는 Reports에서 확인하세요.</p>
       ) : null}
       <div className="evaluation-list">
-        {pendingEvaluations.map((evaluation) => {
+        {filteredPendingEvaluations.map((evaluation) => {
           const submission = submissions.find((item) => item.id === evaluation.submissionId);
           const isFinalized = evaluation.status === "finalized";
           return (
@@ -3029,34 +3064,64 @@ function Reports({
   submissions: Submission[];
   assignments: Assignment[];
 }) {
-  const [selectedEvaluationId, setSelectedEvaluationId] = useState(evaluations[0]?.id ?? "");
-  const selectedEvaluation = evaluations.find((evaluation) => evaluation.id === selectedEvaluationId) ?? evaluations[0];
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState(assignments[0]?.id ?? "");
+  const selectedReportAssignment = assignments.find((assignment) => assignment.id === selectedAssignmentId) ?? assignments[0];
+  const reportEvaluations = evaluations.filter((evaluation) => {
+    const submission = submissions.find((item) => item.id === evaluation.submissionId);
+    return !selectedReportAssignment || submission?.assignmentId === selectedReportAssignment.id;
+  });
+  const [selectedEvaluationId, setSelectedEvaluationId] = useState(reportEvaluations[0]?.id ?? "");
+  const selectedEvaluation =
+    reportEvaluations.find((evaluation) => evaluation.id === selectedEvaluationId) ?? reportEvaluations[0];
   const selectedSubmission = submissions.find((submission) => submission.id === selectedEvaluation?.submissionId);
   const selectedAssignment = assignments.find((assignment) => assignment.id === selectedSubmission?.assignmentId);
+
+  useEffect(() => {
+    if (!selectedAssignmentId && assignments[0]?.id) {
+      setSelectedAssignmentId(assignments[0].id);
+    }
+  }, [assignments, selectedAssignmentId]);
+
+  useEffect(() => {
+    const hasSelectedEvaluation = reportEvaluations.some((evaluation) => evaluation.id === selectedEvaluationId);
+    if (!hasSelectedEvaluation && reportEvaluations[0]?.id) {
+      setSelectedEvaluationId(reportEvaluations[0].id);
+    }
+    if (!reportEvaluations.length && selectedEvaluationId) {
+      setSelectedEvaluationId("");
+    }
+  }, [selectedAssignmentId, evaluations.length, selectedEvaluationId]);
 
   return (
     <section className="reports-layout">
       <article className="panel">
         <h2>평가 보고서</h2>
+        <label className="field compact-assignment-filter">
+          <span>과제</span>
+          <select value={selectedReportAssignment?.id ?? ""} onChange={(event) => setSelectedAssignmentId(event.target.value)}>
+            {assignments.map((assignment) => (
+              <option key={assignment.id} value={assignment.id}>
+                {assignment.title}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="compact-report-list">
-          <div className="compact-report-head">
+          <div className="compact-report-head report-head">
             <span>학생</span>
-            <span>과제</span>
             <span>점수</span>
             <span>상태</span>
           </div>
-          {evaluations.length === 0 ? <p className="muted">아직 평가 보고서가 없습니다.</p> : null}
-          {evaluations.map((evaluation) => {
+          {reportEvaluations.length === 0 ? <p className="muted">아직 평가 보고서가 없습니다.</p> : null}
+          {reportEvaluations.map((evaluation) => {
             const submission = submissions.find((item) => item.id === evaluation.submissionId);
-            const assignment = assignments.find((item) => item.id === submission?.assignmentId);
             return (
               <button
-                className={selectedEvaluation?.id === evaluation.id ? "compact-report-row selected" : "compact-report-row"}
+                className={selectedEvaluation?.id === evaluation.id ? "compact-report-row report-row selected" : "compact-report-row report-row"}
                 key={evaluation.id}
                 onClick={() => setSelectedEvaluationId(evaluation.id)}
               >
                 <strong>{submission?.studentName ?? "알 수 없음"}</strong>
-                <span>{assignment?.title ?? "-"}</span>
                 <span>{evaluation.totalScore}</span>
                 <span>{statusLabel(evaluation.status)}</span>
               </button>
