@@ -1337,12 +1337,24 @@ function Dashboard({
       description: "과제의 유형과 내용을 설정해 주세요.",
     },
     {
+      title: "AI Diagnosis",
+      description: "AI Baseline을 등록해 주세요.",
+    },
+    {
       title: "Submissions",
       description: "제출물을 등록해 평가해 주세요.",
     },
     {
+      title: "AI Generated Score",
+      description: "AI Baseline과의 유사도를 계산해 주세요.",
+    },
+    {
+      title: "Analysis",
+      description: "제출물 간 유사도를 분석해 주세요.",
+    },
+    {
       title: "Evaluations",
-      description: "AI평가결과를 확인하고 조정해 주세요.",
+      description: "점수와 보고서를 조정하고 확정해 주세요.",
     },
     {
       title: "Reports",
@@ -3552,7 +3564,7 @@ function UserManualGuide() {
         </div>
         <div className="safe-hero-metric">
           <span>권장 흐름</span>
-          <strong>7</strong>
+          <strong>8</strong>
           <small>단계</small>
         </div>
       </article>
@@ -3563,11 +3575,12 @@ function UserManualGuide() {
           {[
             ["1", "Rubric Sets", "평가세트와 카테고리별 배점을 확인하고 필요하면 배점 수정으로 조정합니다."],
             ["2", "Assignments", "과제명, 과제유형, 설명, 사용할 평가세트를 등록합니다."],
-            ["3", "Submissions", "과제를 선택한 뒤 학생 제출물을 텍스트 또는 PDF로 등록하고 AI 평가를 실행합니다."],
-            ["4", "AI Diagnosis", "과제별 AI Baseline을 만들고 모델별 기준 답안을 붙여 넣습니다."],
+            ["3", "AI Diagnosis", "과제별 AI Baseline을 만들고 모델별 기준 답안을 붙여 넣습니다."],
+            ["4", "Submissions", "과제를 선택한 뒤 학생 제출물을 텍스트 또는 PDF로 등록하고 AI 평가를 실행합니다."],
             ["5", "AI Generated Score", "학생 제출물과 AI Baseline의 유사도를 과제 단위로 일괄 계산합니다."],
             ["6", "Analysis", "같은 과제 제출물끼리 문장일치, 문장유사, 문단유사, 구조유사를 분석합니다."],
             ["7", "Evaluations", "AI 점수, 유사도, Rubrix Tuning Score를 보고 최종조정점수와 보고서를 확정합니다."],
+            ["8", "Reports", "최종확정된 피드백과 학생용 보고서를 과제별로 확인합니다."],
           ].map(([step, title, text]) => (
             <div className="manual-step" key={step}>
               <b>{step}</b>
@@ -3596,32 +3609,21 @@ function UserManualGuide() {
           <h2>2. 과제 만들기</h2>
           <p className="muted">
             `Assignments`에서 실제 평가할 과제를 만듭니다. 한 평가자가 여러 과제를 관리할 수 있으므로,
-            이후 Submissions, Analysis, Evaluations, Reports는 과제 선택을 기준으로 운영됩니다.
+            이후 AI Diagnosis, Submissions, Analysis, Evaluations, Reports는 과제 선택을 기준으로 운영됩니다.
           </p>
           <ul className="safe-bullets">
             <li>과제명은 학생 제출물을 구분하는 가장 중요한 기준입니다.</li>
             <li>과제유형은 기본 목록에서 선택하거나 새 유형을 추가할 수 있습니다.</li>
             <li>과제 설명에는 평가자가 AI에 참고시키고 싶은 과제 지시문을 적는 것이 좋습니다.</li>
+            <li>기존 과제는 `수정`을 누른 뒤 변경하고, `확정`을 눌러 저장합니다.</li>
+            <li>과제 목록은 오름차순 또는 내림차순으로 정렬할 수 있습니다.</li>
           </ul>
         </article>
       </div>
 
       <div className="manual-grid">
         <article className="panel">
-          <h2>3. 제출물 등록과 AI 평가</h2>
-          <p className="muted">
-            `Submissions`에서 과제를 선택하고 학생별 제출물을 등록합니다. PDF 업로드 또는 텍스트 붙여넣기를
-            사용할 수 있으며, 평가 실행 후 결과는 `Evaluations`에서 검토합니다.
-          </p>
-          <ul className="safe-bullets">
-            <li>같은 과제의 제출물은 반드시 같은 과제로 등록해야 이후 비교분석이 정확합니다.</li>
-            <li>평가 실행 중에는 로딩 표시가 나타납니다.</li>
-            <li>제출물을 삭제하면 연결된 평가 결과도 함께 삭제됩니다.</li>
-          </ul>
-        </article>
-
-        <article className="panel">
-          <h2>4. AI Diagnosis와 Baseline</h2>
+          <h2>3. AI Diagnosis와 Baseline</h2>
           <p className="muted">
             `AI Diagnosis`는 AI가 작성했을 가능성을 참고하기 위한 기준 답안 보관소입니다. ChatGPT, Claude,
             Gemini 등에서 같은 과제 지시문으로 만든 답안을 모델별 Baseline으로 붙여 넣습니다.
@@ -3632,11 +3634,38 @@ function UserManualGuide() {
             <li>사용하지 않을 Baseline은 비활성화하거나 삭제할 수 있습니다.</li>
           </ul>
         </article>
+
+        <article className="panel">
+          <h2>4. 제출물 등록과 AI 평가</h2>
+          <p className="muted">
+            `Submissions`에서 과제를 선택하고 학생별 제출물을 등록합니다. PDF 업로드 또는 텍스트 붙여넣기를
+            사용할 수 있으며, 평가 실행 후에도 화면은 Submissions에 머뭅니다.
+          </p>
+          <ul className="safe-bullets">
+            <li>같은 과제의 제출물은 반드시 같은 과제로 등록해야 이후 비교분석이 정확합니다.</li>
+            <li>평가 실행 중에는 로딩 표시가 나타납니다.</li>
+            <li>제출물 목록은 오름차순 또는 내림차순으로 정렬할 수 있습니다.</li>
+            <li>제출물을 삭제하면 연결된 평가 결과도 함께 삭제됩니다.</li>
+          </ul>
+        </article>
       </div>
 
       <div className="manual-grid">
         <article className="panel">
-          <h2>5. 유사도 분석</h2>
+          <h2>5. AI Generated Score</h2>
+          <p className="muted">
+            `AI Generated Score`는 학생 제출물과 AI Baseline을 비교해 모델별 AI 생성 유사도 평균을 계산합니다.
+            이 값은 Evaluations와 Rubrix Tuning 계산에서 참고 신호로 사용됩니다.
+          </p>
+          <ul className="safe-bullets">
+            <li>과제를 선택한 뒤 `AI 진단 실행`을 누르면 제출물 전체를 일괄 비교합니다.</li>
+            <li>평균과 최대 6개 모델별 점수를 확인할 수 있습니다.</li>
+            <li>점수 색상은 낮음, 보통, 주의, 높음의 위험 정도를 빠르게 구분하는 데 사용합니다.</li>
+          </ul>
+        </article>
+
+        <article className="panel">
+          <h2>6. 유사도 분석</h2>
           <p className="muted">
             `Analysis`는 같은 과제 제출물끼리 비교합니다. 결과는 각 리포트가 다른 리포트들과 얼마나 유사한지
             상위 10% 평균을 기준으로 요약되어 SAFE Model에 사용됩니다.
@@ -3647,9 +3676,11 @@ function UserManualGuide() {
             <li>선택하지 않은 분석 기준은 결과에서 `-`로 표시됩니다.</li>
           </ul>
         </article>
+      </div>
 
+      <div className="manual-grid">
         <article className="panel">
-          <h2>6. Evaluations에서 확정</h2>
+          <h2>7. Evaluations에서 확정</h2>
           <p className="muted">
             `Evaluations`에서는 최종확정 전 평가만 검토합니다. AI 평가점수, AI Generated Score, Analysis,
             Rubrix Tuning Score를 함께 보고 최종조정점수와 피드백, 학생용 보고서를 수정합니다.
@@ -3660,29 +3691,29 @@ function UserManualGuide() {
             <li>`평가완료`를 누르면 결과가 Reports로 이동합니다.</li>
           </ul>
         </article>
-      </div>
 
-      <article className="panel">
-        <h2>7. Reports와 운영 주의사항</h2>
-        <div className="manual-note-grid">
-          <div>
-            <strong>Reports</strong>
-            <span>최종확정된 평가 결과만 과제별로 확인합니다. 학생에게 전달할 피드백과 보고서를 여기서 점검합니다.</span>
+        <article className="panel">
+          <h2>8. Reports와 운영 주의사항</h2>
+          <div className="manual-note-grid">
+            <div>
+              <strong>Reports</strong>
+              <span>최종확정된 평가 결과만 과제별로 확인합니다. 학생에게 전달할 피드백과 보고서를 여기서 점검합니다.</span>
+            </div>
+            <div>
+              <strong>데이터 저장</strong>
+              <span>Supabase가 연결되어 있으면 입력 데이터는 자동 저장됩니다. 새로고침해도 유지됩니다.</span>
+            </div>
+            <div>
+              <strong>AI 평가</strong>
+              <span>OpenAI API 키가 설정되어 있어야 실제 평가가 실행됩니다. 키가 없으면 임시 평가 결과가 표시됩니다.</span>
+            </div>
+            <div>
+              <strong>윤리적 사용</strong>
+              <span>Similarity와 AI Footprint는 부정행위의 단독 증거가 아니라 평가자 검토를 돕는 보조 신호입니다.</span>
+            </div>
           </div>
-          <div>
-            <strong>데이터 저장</strong>
-            <span>Supabase가 연결되어 있으면 입력 데이터는 자동 저장됩니다. 새로고침해도 유지됩니다.</span>
-          </div>
-          <div>
-            <strong>AI 평가</strong>
-            <span>OpenAI API 키가 설정되어 있어야 실제 평가가 실행됩니다. 키가 없으면 임시 평가 결과가 표시됩니다.</span>
-          </div>
-          <div>
-            <strong>윤리적 사용</strong>
-            <span>Similarity와 AI Footprint는 부정행위의 단독 증거가 아니라 평가자 검토를 돕는 보조 신호입니다.</span>
-          </div>
-        </div>
-      </article>
+        </article>
+      </div>
     </section>
   );
 }
