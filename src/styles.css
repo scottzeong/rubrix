@@ -638,7 +638,7 @@ h2 {
 
 .table-head,
 .table-row {
-  grid-template-columns: 1fr 0.9fr 1fr 2fr 0.5fr;
+  grid-template-columns: 1fr 0.9fr 1fr 2fr minmax(132px, 0.8fr);
   padding: 13px 0;
 }
 

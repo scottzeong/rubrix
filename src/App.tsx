@@ -345,8 +345,8 @@ const menu = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "rubrics", label: "Rubric Sets", icon: BookOpenCheck },
   { key: "assignments", label: "Assignments", icon: ClipboardCheck },
-  { key: "submissions", label: "Submissions", icon: Upload },
   { key: "aiDiagnosis", label: "AI Diagnosis", icon: Bot },
+  { key: "submissions", label: "Submissions", icon: Upload },
   { key: "aiGeneratedScore", label: "AI Generated Score", icon: BrainCircuit },
   { key: "analysis", label: "Analysis", icon: SearchCheck },
   { key: "evaluations", label: "Evaluations", icon: Sparkles },
@@ -923,6 +923,14 @@ export function App() {
       "선택된 평가항목:",
       selectedCriteria.map((item) => `- ${item}`).join("\n"),
       "",
+      "엄격한 점수 산정 지침:",
+      "- 반드시 0점부터 100점까지의 전체 척도를 사용하세요.",
+      "- 평균적인 제출물은 65~75점대에 배치하고, 우수하지만 결함이 있는 제출물은 75~85점대에 배치하세요.",
+      "- 90점 이상은 과제 요구를 거의 완벽히 충족하고 분석, 근거, 구성, 표현, 연구윤리가 모두 탁월한 경우에만 부여하세요.",
+      "- 내용 누락, 근거 부족, 단순 요약, 논리 비약, 인용 문제, 과제 지시 미충족이 있으면 명확히 감점하세요.",
+      "- 같은 과제의 여러 제출물을 평가한다고 가정하고 최소 30점 이상의 점수 분포가 생기도록 보수적으로 채점하세요.",
+      "- 좋은 문장력만으로 높은 점수를 주지 말고, 평가항목별 실질적 성취를 기준으로 판단하세요.",
+      "",
       "리포트 본문:",
       submission.reportText,
     ].join("\n");
@@ -978,7 +986,6 @@ export function App() {
         },
         ...current,
       ]);
-      setActiveMenu("analysis");
     } finally {
       setEvaluatingSubmissionIds((current) => current.filter((submissionId) => submissionId !== submission.id));
     }
@@ -1711,13 +1718,42 @@ function Assignments({
   const [newTaskTypeName, setNewTaskTypeName] = useState("");
   const [newTaskTypeDescription, setNewTaskTypeDescription] = useState("");
   const [newTaskTypeFocus, setNewTaskTypeFocus] = useState("");
+  const [assignmentSortDirection, setAssignmentSortDirection] = useState<"asc" | "desc">("asc");
+  const [editingAssignmentId, setEditingAssignmentId] = useState("");
+  const [assignmentDraft, setAssignmentDraft] = useState<Assignment | null>(null);
+  const sortedAssignments = [...assignments].sort((left, right) => {
+    const compareResult = left.title.localeCompare(right.title, "ko");
+    return assignmentSortDirection === "asc" ? compareResult : -compareResult;
+  });
 
-  function updateTaskType(assignmentId: string, taskTypeId: string) {
+  function startEditAssignment(assignment: Assignment) {
+    setEditingAssignmentId(assignment.id);
+    setAssignmentDraft({ ...assignment });
+  }
+
+  function cancelEditAssignment() {
+    setEditingAssignmentId("");
+    setAssignmentDraft(null);
+  }
+
+  function updateAssignmentDraft(field: keyof Assignment, value: string) {
+    setAssignmentDraft((current) => (current ? { ...current, [field]: value } : current));
+  }
+
+  function confirmEditAssignment() {
+    if (!assignmentDraft) return;
     updateAssignments((current) =>
       current.map((assignment) =>
-        assignment.id === assignmentId ? { ...assignment, taskType: taskTypeId } : assignment
+        assignment.id === assignmentDraft.id
+          ? {
+              ...assignmentDraft,
+              title: assignmentDraft.title.trim() || assignment.title,
+              description: assignmentDraft.description.trim() || assignment.description,
+            }
+          : assignment
       )
     );
+    cancelEditAssignment();
   }
 
   function updateTaskTypeDetail(taskTypeId: string, field: keyof TaskType, value: string) {
@@ -1729,14 +1765,6 @@ function Assignments({
               [field]: field === "focus" ? value.split("\n").map((item) => item.trim()).filter(Boolean) : value,
             }
           : taskType
-      )
-    );
-  }
-
-  function updateAssignment(assignmentId: string, field: keyof Assignment, value: string) {
-    updateAssignments((current) =>
-      current.map((assignment) =>
-        assignment.id === assignmentId ? { ...assignment, [field]: value } : assignment
       )
     );
   }
@@ -1793,10 +1821,19 @@ function Assignments({
     <article className="panel">
       <div className="panel-title">
         <h2>과제 목록</h2>
-        <button className="primary-button" onClick={() => setIsAddingAssignment(true)}>
-          <Plus size={16} />
-          과제 만들기
-        </button>
+        <div className="panel-actions">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setAssignmentSortDirection((current) => (current === "asc" ? "desc" : "asc"))}
+          >
+            {assignmentSortDirection === "asc" ? "오름차순" : "내림차순"}
+          </button>
+          <button className="primary-button" onClick={() => setIsAddingAssignment(true)}>
+            <Plus size={16} />
+            과제 만들기
+          </button>
+        </div>
       </div>
       {isAddingAssignment ? (
         <div className="confirm-box">
@@ -1859,49 +1896,79 @@ function Assignments({
           <span>설명</span>
           <span>관리</span>
         </div>
-        {assignments.map((assignment) => (
-          <div className="table-row" key={assignment.id}>
-            <label className="compact-field">
-              <input
-                value={assignment.title}
-                onChange={(event) => updateAssignment(assignment.id, "title", event.target.value)}
-              />
-            </label>
-            <label className="compact-field">
-              <select
-                value={assignment.taskType}
-                onChange={(event) => updateTaskType(assignment.id, event.target.value)}
-              >
-                {taskTypes.map((taskType) => (
-                  <option key={taskType.id} value={taskType.id}>
-                    {taskType.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="compact-field">
-              <select
-                value={assignment.rubricSetId}
-                onChange={(event) => updateAssignment(assignment.id, "rubricSetId", event.target.value)}
-              >
-                {rubrics.map((rubric) => (
-                  <option key={rubric.id} value={rubric.id}>
-                    {rubric.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="compact-field">
-              <textarea
-                value={assignment.description}
-                onChange={(event) => updateAssignment(assignment.id, "description", event.target.value)}
-              />
-            </label>
-            <button className="danger-button" onClick={() => deleteAssignment(assignment.id)}>
-              삭제
-            </button>
-          </div>
-        ))}
+        {sortedAssignments.map((assignment) => {
+          const isEditing = editingAssignmentId === assignment.id && assignmentDraft;
+          const taskType = taskTypes.find((item) => item.id === assignment.taskType);
+          const rubric = rubrics.find((item) => item.id === assignment.rubricSetId);
+
+          return (
+            <div className="table-row" key={assignment.id}>
+              {isEditing ? (
+                <>
+                  <label className="compact-field">
+                    <input
+                      value={assignmentDraft.title}
+                      onChange={(event) => updateAssignmentDraft("title", event.target.value)}
+                    />
+                  </label>
+                  <label className="compact-field">
+                    <select
+                      value={assignmentDraft.taskType}
+                      onChange={(event) => updateAssignmentDraft("taskType", event.target.value)}
+                    >
+                      {taskTypes.map((taskTypeItem) => (
+                        <option key={taskTypeItem.id} value={taskTypeItem.id}>
+                          {taskTypeItem.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="compact-field">
+                    <select
+                      value={assignmentDraft.rubricSetId}
+                      onChange={(event) => updateAssignmentDraft("rubricSetId", event.target.value)}
+                    >
+                      {rubrics.map((rubricItem) => (
+                        <option key={rubricItem.id} value={rubricItem.id}>
+                          {rubricItem.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="compact-field">
+                    <textarea
+                      value={assignmentDraft.description}
+                      onChange={(event) => updateAssignmentDraft("description", event.target.value)}
+                    />
+                  </label>
+                  <div className="row-actions">
+                    <button className="primary-button compact-action" onClick={confirmEditAssignment}>
+                      확정
+                    </button>
+                    <button className="secondary-button compact-action" onClick={cancelEditAssignment}>
+                      취소
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <strong>{assignment.title}</strong>
+                  <span>{taskType?.name ?? "-"}</span>
+                  <span>{rubric?.name ?? "-"}</span>
+                  <span>{assignment.description}</span>
+                  <div className="row-actions">
+                    <button className="secondary-button compact-action" onClick={() => startEditAssignment(assignment)}>
+                      수정
+                    </button>
+                    <button className="danger-button compact-action" onClick={() => deleteAssignment(assignment.id)}>
+                      삭제
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
       </div>
       <div className="section-title-row">
         <div>
@@ -2015,11 +2082,16 @@ function Submissions({
   const [fileName, setFileName] = useState("");
   const [reportText, setReportText] = useState("");
   const [selectedSubmissionId, setSelectedSubmissionId] = useState("");
+  const [submissionSortDirection, setSubmissionSortDirection] = useState<"asc" | "desc">("asc");
   const filteredSubmissions = submissions.filter(
     (submission) => submission.assignmentId === (selectedAssignmentId || assignments[0]?.id)
   );
+  const sortedFilteredSubmissions = [...filteredSubmissions].sort((left, right) => {
+    const compareResult = left.studentName.localeCompare(right.studentName, "ko");
+    return submissionSortDirection === "asc" ? compareResult : -compareResult;
+  });
   const selectedSubmission =
-    filteredSubmissions.find((submission) => submission.id === selectedSubmissionId) ?? filteredSubmissions[0];
+    sortedFilteredSubmissions.find((submission) => submission.id === selectedSubmissionId) ?? sortedFilteredSubmissions[0];
   const selectedSubmissionAssignment = assignments.find(
     (assignment) => assignment.id === selectedSubmission?.assignmentId
   );
@@ -2053,6 +2125,13 @@ function Submissions({
           <h2>제출물 목록</h2>
           <p className="muted">PDF 업로드와 텍스트 붙여넣기를 지원합니다.</p>
         </div>
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => setSubmissionSortDirection((current) => (current === "asc" ? "desc" : "asc"))}
+        >
+          {submissionSortDirection === "asc" ? "오름차순" : "내림차순"}
+        </button>
       </div>
       <div className="submission-form">
         <div className="form-grid">
@@ -2115,7 +2194,7 @@ function Submissions({
             <span>관리</span>
           </div>
           {filteredSubmissions.length === 0 ? <p className="muted">선택한 과제에 등록된 제출물이 없습니다.</p> : null}
-          {filteredSubmissions.map((submission) => {
+          {sortedFilteredSubmissions.map((submission) => {
             const isEvaluated = evaluations.some((evaluation) => evaluation.submissionId === submission.id);
             const isEvaluating = evaluatingSubmissionIds.includes(submission.id);
             const assignment = assignments.find((item) => item.id === submission.assignmentId);
