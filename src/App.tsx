@@ -86,6 +86,12 @@ type Evaluation = {
   feedback: string;
   studentReport: string;
   prompt: string;
+  evaluatedAt?: string;
+  finalizedAt?: string;
+  model?: string;
+  promptVersion?: string;
+  rubricPromptVersion?: string;
+  safeModelVersion?: string;
   rubrixTuningScore?: number;
   rubrixTuningDelta?: number;
   rubrixTuningNote?: string;
@@ -167,7 +173,21 @@ type TaskType = {
   focus: string[];
 };
 
-type AppStateData = {
+type EvaluationHistory = Evaluation & {
+  archivedAt: string;
+  archiveReason: string;
+};
+
+type AuditLog = {
+  id: string;
+  createdAt: string;
+  action: string;
+  targetType: string;
+  targetId?: string;
+  message: string;
+};
+
+type BackupData = {
   rubrics: RubricSet[];
   assignments: Assignment[];
   taskTypes: TaskType[];
@@ -176,9 +196,27 @@ type AppStateData = {
   similarityAnalyses: SimilarityAnalysis[];
   aiBaselines: AiBaseline[];
   aiGeneratedResults: AiGeneratedResult[];
+  evaluationHistories: EvaluationHistory[];
+  auditLogs: AuditLog[];
   selectedRubricId: string;
   aiModel: string;
 };
+
+type BackupSnapshot = {
+  id: string;
+  createdAt: string;
+  reason: string;
+  summary: string;
+  data: BackupData;
+};
+
+type AppStateData = BackupData & {
+  autoBackups: BackupSnapshot[];
+};
+
+const evaluationPromptVersion = "strict-evaluation-v2";
+const rubricPromptVersion = "rubric-prompt-v1";
+const safeModelVersion = "safe-v1.0";
 
 const initialTaskTypes: TaskType[] = [
   {
@@ -654,6 +692,9 @@ export function App() {
   const [similarityAnalyses, setSimilarityAnalyses] = useState<SimilarityAnalysis[]>([]);
   const [aiBaselines, setAiBaselines] = useState<AiBaseline[]>([]);
   const [aiGeneratedResults, setAiGeneratedResults] = useState<AiGeneratedResult[]>([]);
+  const [evaluationHistories, setEvaluationHistories] = useState<EvaluationHistory[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [autoBackups, setAutoBackups] = useState<BackupSnapshot[]>([]);
   const [selectedRubricId, setSelectedRubricId] = useState(seedRubric.id);
   const [aiModel, setAiModel] = useState("gpt-5.4-mini");
   const [evaluatingSubmissionIds, setEvaluatingSubmissionIds] = useState<string[]>([]);
@@ -670,15 +711,21 @@ export function App() {
       similarityAnalyses,
       aiBaselines,
       aiGeneratedResults,
+      evaluationHistories,
+      auditLogs,
       selectedRubricId,
       aiModel,
+      autoBackups,
     }),
     [
       aiBaselines,
       aiGeneratedResults,
       aiModel,
       assignments,
+      auditLogs,
+      autoBackups,
       evaluations,
+      evaluationHistories,
       rubrics,
       selectedRubricId,
       similarityAnalyses,
@@ -708,6 +755,9 @@ export function App() {
           setSimilarityAnalyses(payload.data.similarityAnalyses ?? []);
           setAiBaselines(payload.data.aiBaselines ?? []);
           setAiGeneratedResults(payload.data.aiGeneratedResults ?? []);
+          setEvaluationHistories(payload.data.evaluationHistories ?? []);
+          setAuditLogs(payload.data.auditLogs ?? []);
+          setAutoBackups(payload.data.autoBackups ?? []);
           setSelectedRubricId(payload.data.selectedRubricId ?? seedRubric.id);
           setAiModel(payload.data.aiModel ?? "gpt-5.4-mini");
         }
@@ -792,6 +842,52 @@ export function App() {
     [assignments.length, evaluations.length, rubrics.length, submissions.length]
   );
 
+  function createBackupData(): BackupData {
+    return {
+      rubrics,
+      assignments,
+      taskTypes,
+      submissions,
+      evaluations,
+      similarityAnalyses,
+      aiBaselines,
+      aiGeneratedResults,
+      evaluationHistories,
+      auditLogs,
+      selectedRubricId,
+      aiModel,
+    };
+  }
+
+  function backupSummary(data: BackupData) {
+    return `과제 ${data.assignments.length}개 · 제출물 ${data.submissions.length}개 · 평가 ${data.evaluations.length}개`;
+  }
+
+  function createAutoBackup(reason: string) {
+    const data = createBackupData();
+    const backup: BackupSnapshot = {
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      reason,
+      summary: backupSummary(data),
+      data,
+    };
+    setAutoBackups((current) => [backup, ...current].slice(0, 5));
+    return backup;
+  }
+
+  function addAuditLog(action: string, targetType: string, message: string, targetId?: string) {
+    const log: AuditLog = {
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      action,
+      targetType,
+      targetId,
+      message,
+    };
+    setAuditLogs((current) => [log, ...current].slice(0, 200));
+  }
+
   function updateRubric(nextRubric: RubricSet) {
     setRubrics((current) => current.map((rubric) => (rubric.id === nextRubric.id ? nextRubric : rubric)));
   }
@@ -809,8 +905,12 @@ export function App() {
     setSimilarityAnalyses(nextState.similarityAnalyses ?? []);
     setAiBaselines(nextState.aiBaselines ?? []);
     setAiGeneratedResults(nextState.aiGeneratedResults ?? []);
+    setEvaluationHistories(nextState.evaluationHistories ?? []);
+    setAuditLogs(nextState.auditLogs ?? []);
+    setAutoBackups("autoBackups" in nextState ? (nextState as Partial<AppStateData>).autoBackups ?? [] : []);
     setSelectedRubricId(nextState.selectedRubricId ?? nextState.rubrics?.[0]?.id ?? seedRubric.id);
     setAiModel(nextState.aiModel ?? "gpt-5.4-mini");
+    addAuditLog("restore_backup", "app_state", "백업 파일에서 데이터를 복원했습니다.");
     setStorageStatus("백업 복원됨. 자동 저장 대기 중");
   }
 
@@ -818,7 +918,7 @@ export function App() {
     const backup = {
       version: 1,
       createdAt: new Date().toISOString(),
-      data: currentAppState,
+      data: createBackupData(),
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], {
       type: "application/json;charset=utf-8",
@@ -857,6 +957,7 @@ export function App() {
   function deleteRubricSet(rubricId: string) {
     if (rubrics.length <= 1) return;
     if (!window.confirm("이 평가세트를 삭제할까요? 연결된 과제는 다른 평가세트로 변경됩니다.")) return;
+    createAutoBackup("평가세트 삭제 전");
     const fallbackRubric = rubrics.find((rubric) => rubric.id !== rubricId);
     setRubrics((current) => current.filter((rubric) => rubric.id !== rubricId));
     setAssignments((current) =>
@@ -869,6 +970,7 @@ export function App() {
     if (selectedRubricId === rubricId && fallbackRubric) {
       setSelectedRubricId(fallbackRubric.id);
     }
+    addAuditLog("delete", "rubric", "평가세트를 삭제했습니다.", rubricId);
   }
 
   function addAssignment(values?: Partial<Assignment>) {
@@ -886,15 +988,48 @@ export function App() {
   }
 
   function deleteAssignment(assignmentId: string) {
-    if (!window.confirm("이 과제를 삭제할까요?")) return;
+    const assignment = assignments.find((item) => item.id === assignmentId);
+    const linkedSubmissions = submissions.filter((submission) => submission.assignmentId === assignmentId);
+    const linkedSubmissionIds = new Set(linkedSubmissions.map((submission) => submission.id));
+    const linkedEvaluations = evaluations.filter((evaluation) => linkedSubmissionIds.has(evaluation.submissionId));
+    const linkedAnalyses = similarityAnalyses.filter((analysis) => analysis.assignmentId === assignmentId);
+    const linkedBaselines = aiBaselines.filter((baseline) => baseline.assignmentId === assignmentId);
+    const linkedAiResults = aiGeneratedResults.filter((result) => result.assignmentId === assignmentId);
+    const confirmation = window.prompt(
+      [
+        `"${assignment?.title ?? "이 과제"}"를 삭제합니다.`,
+        `연결된 제출물 ${linkedSubmissions.length}개, 평가 ${linkedEvaluations.length}개, 분석 ${linkedAnalyses.length}개, AI Baseline ${linkedBaselines.length}개, AI Generated 결과 ${linkedAiResults.length}개가 함께 삭제됩니다.`,
+        "삭제하려면 아래에 삭제 라고 입력하세요.",
+      ].join("\n")
+    );
+    if (confirmation !== "삭제") return;
+    createAutoBackup("과제 삭제 전");
     setAssignments((current) => current.filter((assignment) => assignment.id !== assignmentId));
+    setSubmissions((current) => current.filter((submission) => submission.assignmentId !== assignmentId));
+    setEvaluations((current) => current.filter((evaluation) => !linkedSubmissionIds.has(evaluation.submissionId)));
     setSimilarityAnalyses((current) => current.filter((analysis) => analysis.assignmentId !== assignmentId));
     setAiBaselines((current) => current.filter((baseline) => baseline.assignmentId !== assignmentId));
     setAiGeneratedResults((current) => current.filter((result) => result.assignmentId !== assignmentId));
+    addAuditLog(
+      "delete",
+      "assignment",
+      `과제 삭제: 제출물 ${linkedSubmissions.length}개, 평가 ${linkedEvaluations.length}개 포함`,
+      assignmentId
+    );
   }
 
   function deleteSubmission(submissionId: string) {
-    if (!window.confirm("이 제출물을 삭제할까요? 연결된 평가결과도 함께 삭제됩니다.")) return;
+    const submission = submissions.find((item) => item.id === submissionId);
+    const linkedEvaluations = evaluations.filter((evaluation) => evaluation.submissionId === submissionId);
+    const confirmation = window.prompt(
+      [
+        `"${submission?.studentName ?? "이 제출물"}"을 삭제합니다.`,
+        `연결된 평가 ${linkedEvaluations.length}개도 함께 삭제됩니다.`,
+        "삭제하려면 아래에 삭제 라고 입력하세요.",
+      ].join("\n")
+    );
+    if (confirmation !== "삭제") return;
+    createAutoBackup("제출물 삭제 전");
     setSubmissions((current) => current.filter((submission) => submission.id !== submissionId));
     setEvaluations((current) => current.filter((evaluation) => evaluation.submissionId !== submissionId));
     setSimilarityAnalyses((current) =>
@@ -914,6 +1049,7 @@ export function App() {
         scores: result.scores.filter((score) => score.submissionId !== submissionId),
       }))
     );
+    addAuditLog("delete", "submission", `제출물을 삭제했습니다. 연결 평가 ${linkedEvaluations.length}개`, submissionId);
   }
 
   function addSubmission(inputType: "pdf" | "text", values: {
@@ -940,6 +1076,11 @@ export function App() {
   }
 
   async function runEvaluation(submission: Submission) {
+    const previousEvaluations = evaluations.filter((evaluation) => evaluation.submissionId === submission.id);
+    if (previousEvaluations.length > 0) {
+      if (!window.confirm("이미 평가 결과가 있습니다. 재평가를 실행하고 기존 결과는 이력으로 보관할까요?")) return;
+    }
+    createAutoBackup(previousEvaluations.length ? "재평가 실행 전" : "평가 실행 전");
     setEvaluatingSubmissionIds((current) =>
       current.includes(submission.id) ? current : [...current, submission.id]
     );
@@ -1044,6 +1185,17 @@ export function App() {
     }
 
     try {
+      const now = new Date().toISOString();
+      if (previousEvaluations.length > 0) {
+        setEvaluationHistories((current) => [
+          ...previousEvaluations.map((evaluation) => ({
+            ...evaluation,
+            archivedAt: now,
+            archiveReason: "재평가 실행",
+          })),
+          ...current,
+        ]);
+      }
       setEvaluations((current) => [
         {
           id: crypto.randomUUID(),
@@ -1055,20 +1207,46 @@ export function App() {
           prompt,
           feedback: evaluatedFeedback,
           studentReport: evaluatedStudentReport,
+          evaluatedAt: now,
+          model: aiModel,
+          promptVersion: evaluationPromptVersion,
+          rubricPromptVersion,
+          safeModelVersion,
         },
-        ...current,
+        ...current.filter((evaluation) => evaluation.submissionId !== submission.id),
       ]);
+      addAuditLog(
+        previousEvaluations.length ? "rerun_evaluation" : "run_evaluation",
+        "submission",
+        `${submission.studentName} 평가 실행: ${evaluatedScore}점`,
+        submission.id
+      );
+      createAutoBackup("평가 완료 후");
     } finally {
       setEvaluatingSubmissionIds((current) => current.filter((submissionId) => submissionId !== submission.id));
     }
   }
 
   function finalizeEvaluation(evaluationId: string) {
+    const evaluation = evaluations.find((item) => item.id === evaluationId);
     setEvaluations((current) =>
       current.map((evaluation) =>
-        evaluation.id === evaluationId ? { ...evaluation, status: "finalized" } : evaluation
+        evaluation.id === evaluationId ? { ...evaluation, status: "finalized", finalizedAt: new Date().toISOString() } : evaluation
       )
     );
+    addAuditLog("finalize", "evaluation", `평가를 최종 확정했습니다. 점수 ${evaluation?.totalScore ?? "-"}점`, evaluationId);
+  }
+
+  function reopenEvaluation(evaluationId: string) {
+    const evaluation = evaluations.find((item) => item.id === evaluationId);
+    if (!window.confirm("최종확정을 해제하고 Evaluations에서 다시 수정할 수 있게 할까요?")) return;
+    createAutoBackup("최종확정 해제 전");
+    setEvaluations((current) =>
+      current.map((item) =>
+        item.id === evaluationId ? { ...item, status: "ai_completed", finalizedAt: undefined } : item
+      )
+    );
+    addAuditLog("reopen", "evaluation", `최종확정을 해제했습니다. 점수 ${evaluation?.totalScore ?? "-"}점`, evaluationId);
   }
 
   function runSimilarityAnalysis(assignmentId: string, modes: SimilarityMode[]) {
@@ -1102,6 +1280,7 @@ export function App() {
 
   function deleteAiBaseline(baselineId: string) {
     if (!window.confirm("AI Baseline을 삭제할까요?")) return;
+    createAutoBackup("AI Baseline 삭제 전");
     setAiBaselines((current) => current.filter((baseline) => baseline.id !== baselineId));
     setAiGeneratedResults((current) =>
       current.map((result) => ({
@@ -1112,6 +1291,7 @@ export function App() {
         })),
       }))
     );
+    addAuditLog("delete", "ai_baseline", "AI Baseline을 삭제했습니다.", baselineId);
   }
 
   function runAiGeneratedDiagnosis(assignmentId: string) {
@@ -1151,6 +1331,7 @@ export function App() {
   }
 
   function runRubrixTuning(assignmentId: string) {
+    createAutoBackup("Rubrix Tuning 실행 전");
     const assignmentEvaluationSignals = evaluations
       .filter((evaluation) => evaluation.status !== "finalized")
       .map((evaluation) => {
@@ -1196,6 +1377,7 @@ export function App() {
           : evaluation;
       })
     );
+    addAuditLog("rubrix_tuning", "assignment", `Rubrix Tuning을 실행했습니다. 대상 ${tuningResults.length}개`, assignmentId);
   }
 
   return (
@@ -1314,10 +1496,18 @@ export function App() {
             finalizeEvaluation={finalizeEvaluation}
             updateEvaluations={setEvaluations}
             runRubrixTuning={runRubrixTuning}
+            recordEvaluationEdit={addAuditLog}
           />
         )}
         {activeMenu === "reports" && (
-          <Reports evaluations={evaluations} submissions={submissions} assignments={assignments} />
+          <Reports
+            evaluations={evaluations}
+            submissions={submissions}
+            assignments={assignments}
+            similarityAnalyses={similarityAnalyses}
+            aiGeneratedResults={aiGeneratedResults}
+            reopenEvaluation={reopenEvaluation}
+          />
         )}
         {activeMenu === "settings" && (
           <SettingsPanel
@@ -1325,6 +1515,9 @@ export function App() {
             setAiModel={setAiModel}
             downloadBackup={downloadBackup}
             restoreBackup={restoreAppState}
+            appState={currentAppState}
+            autoBackups={autoBackups}
+            auditLogs={auditLogs}
           />
         )}
         {activeMenu === "safeModel" && <SafeModelGuide />}
@@ -1406,6 +1599,20 @@ function Dashboard({
     };
   });
   const maxBinCount = Math.max(1, ...scoreBins.map((bin) => bin.count));
+  const evaluatedScores = selectedAssignmentEvaluations.map((evaluation) => evaluation.totalScore);
+  const averageScore = evaluatedScores.length ? Math.round(mean(evaluatedScores) * 10) / 10 : 0;
+  const scoreDeviation = evaluatedScores.length ? Math.round(standardDeviation(evaluatedScores) * 10) / 10 : 0;
+  const scoreRange =
+    evaluatedScores.length > 0 ? Math.max(...evaluatedScores) - Math.min(...evaluatedScores) : 0;
+  const highScoreRate =
+    evaluatedScores.length > 0
+      ? Math.round((evaluatedScores.filter((score) => score >= 90).length / evaluatedScores.length) * 100)
+      : 0;
+  const lowScoreRate =
+    evaluatedScores.length > 0
+      ? Math.round((evaluatedScores.filter((score) => score <= 60).length / evaluatedScores.length) * 100)
+      : 0;
+  const narrowDistributionWarning = evaluatedScores.length >= 5 && scoreRange < 30;
   const flowSteps = [
     {
       title: "Rubric Sets",
@@ -1486,6 +1693,16 @@ function Dashboard({
             </div>
           ))}
         </div>
+        <div className="score-monitor-grid">
+          <div><span>평균</span><strong>{evaluatedScores.length ? `${averageScore}점` : "-"}</strong></div>
+          <div><span>표준편차</span><strong>{evaluatedScores.length ? scoreDeviation : "-"}</strong></div>
+          <div><span>최고/최저 차이</span><strong>{evaluatedScores.length ? `${scoreRange}점` : "-"}</strong></div>
+          <div><span>90점 이상</span><strong>{evaluatedScores.length ? `${highScoreRate}%` : "-"}</strong></div>
+          <div><span>60점 이하</span><strong>{evaluatedScores.length ? `${lowScoreRate}%` : "-"}</strong></div>
+        </div>
+        {narrowDistributionWarning ? (
+          <p className="score-warning">점수 분포가 너무 좁습니다. 평가 기준 또는 프롬프트를 점검하세요.</p>
+        ) : null}
       </article>
       <article className="panel wide">
         <h2>과제리스트</h2>
@@ -2306,11 +2523,11 @@ function Submissions({
                 <div className="row-actions">
                   <button
                     className="primary-button compact-action"
-                    disabled={isEvaluated || isEvaluating}
+                    disabled={isEvaluating}
                     onClick={() => runEvaluation(submission)}
                   >
                     {!isEvaluated ? <Square className={isEvaluating ? "spin-icon" : ""} size={14} /> : null}
-                    {isEvaluated ? "완료" : isEvaluating ? "진행중" : "실행"}
+                    {isEvaluated ? "재평가" : isEvaluating ? "진행중" : "실행"}
                   </button>
                   <button className="danger-button compact-action" onClick={() => deleteSubmission(submission.id)}>
                     삭제
@@ -2680,6 +2897,7 @@ function Evaluations({
   finalizeEvaluation,
   updateEvaluations,
   runRubrixTuning,
+  recordEvaluationEdit,
 }: {
   evaluations: Evaluation[];
   submissions: Submission[];
@@ -2689,6 +2907,7 @@ function Evaluations({
   finalizeEvaluation: (evaluationId: string) => void;
   updateEvaluations: React.Dispatch<React.SetStateAction<Evaluation[]>>;
   runRubrixTuning: (assignmentId: string) => void;
+  recordEvaluationEdit: (action: string, targetType: string, message: string, targetId?: string) => void;
 }) {
   const pendingEvaluations = evaluations.filter((evaluation) => evaluation.status !== "finalized");
   const [selectedAssignmentFilterId, setSelectedAssignmentFilterId] = useState(assignments[0]?.id ?? "");
@@ -2749,6 +2968,10 @@ function Evaluations({
           : evaluation
       )
     );
+    if (field === "totalScore") {
+      const previousScore = evaluations.find((evaluation) => evaluation.id === evaluationId)?.totalScore;
+      recordEvaluationEdit("edit_score", "evaluation", `최종조정점수 변경: ${previousScore ?? "-"}점 → ${value}점`, evaluationId);
+    }
   }
 
   if (selectedEvaluation) {
@@ -3411,10 +3634,16 @@ function Reports({
   evaluations,
   submissions,
   assignments,
+  similarityAnalyses,
+  aiGeneratedResults,
+  reopenEvaluation,
 }: {
   evaluations: Evaluation[];
   submissions: Submission[];
   assignments: Assignment[];
+  similarityAnalyses: SimilarityAnalysis[];
+  aiGeneratedResults: AiGeneratedResult[];
+  reopenEvaluation: (evaluationId: string) => void;
 }) {
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(assignments[0]?.id ?? "");
   const selectedReportAssignment = assignments.find((assignment) => assignment.id === selectedAssignmentId) ?? assignments[0];
@@ -3427,6 +3656,12 @@ function Reports({
     reportEvaluations.find((evaluation) => evaluation.id === selectedEvaluationId) ?? reportEvaluations[0];
   const selectedSubmission = submissions.find((submission) => submission.id === selectedEvaluation?.submissionId);
   const selectedAssignment = assignments.find((assignment) => assignment.id === selectedSubmission?.assignmentId);
+  const selectedSimilaritySummary = similarityAnalyses
+    .find((analysis) => analysis.assignmentId === selectedAssignment?.id)
+    ?.submissionSummaries?.find((summary) => summary.submissionId === selectedSubmission?.id);
+  const selectedAiGeneratedScore = aiGeneratedResults
+    .find((result) => result.assignmentId === selectedAssignment?.id)
+    ?.scores.find((score) => score.submissionId === selectedSubmission?.id);
 
   useEffect(() => {
     if (!selectedAssignmentId && assignments[0]?.id) {
@@ -3493,7 +3728,21 @@ function Reports({
                   {statusLabel(selectedEvaluation.status)}
                 </p>
               </div>
+              <button className="secondary-button" onClick={() => reopenEvaluation(selectedEvaluation.id)}>
+                확정 해제
+              </button>
             </div>
+            <section className="report-detail-section">
+              <h3>Rubrix Tuning 설명</h3>
+              <div className="safe-explanation-box">
+                <div><span>AI 원점수</span><strong>{selectedEvaluation.aiEvaluationScore ?? selectedEvaluation.totalScore}점</strong></div>
+                <div><span>Rubrix Tuning Score</span><strong>{selectedEvaluation.rubrixTuningScore === undefined ? "-" : `${selectedEvaluation.rubrixTuningScore}점`}</strong></div>
+                <div><span>보정폭</span><strong>{selectedEvaluation.rubrixTuningDelta === undefined ? "-" : `${selectedEvaluation.rubrixTuningDelta > 0 ? "+" : ""}${selectedEvaluation.rubrixTuningDelta}점`}</strong></div>
+              </div>
+              <p className="muted">
+                {createSafeExplanation(selectedEvaluation, selectedSimilaritySummary, selectedAiGeneratedScore)}
+              </p>
+            </section>
             <section className="report-detail-section">
               <h3>피드백</h3>
               <div className="report-text-box">{selectedEvaluation.feedback}</div>
@@ -3793,8 +4042,119 @@ function UserManualGuide() {
           </div>
         </article>
       </div>
+
+      <article className="panel">
+        <h2>운영 안정성 기능</h2>
+        <div className="manual-note-grid">
+          <div>
+            <strong>자동 백업 이력</strong>
+            <span>평가 실행 전후, 재평가 전, Rubrix Tuning 실행 전, 삭제 전에는 최근 5개 자동 백업이 저장됩니다.</span>
+          </div>
+          <div>
+            <strong>수동 백업</strong>
+            <span>`Settings`에서 PC로 JSON 백업을 다운로드하고, 복원 전 미리보기로 과제·제출물·평가 개수를 확인합니다.</span>
+          </div>
+          <div>
+            <strong>삭제 보호</strong>
+            <span>과제와 제출물 삭제 시 연결 데이터 개수를 보여주고, `삭제`라고 직접 입력해야 삭제됩니다.</span>
+          </div>
+          <div>
+            <strong>재평가 관리</strong>
+            <span>기존 평가가 있는 제출물은 `재평가`로 다시 실행할 수 있고, 기존 결과는 평가 이력으로 보관됩니다.</span>
+          </div>
+          <div>
+            <strong>Data Check</strong>
+            <span>과제 없는 제출물, 제출물 없는 평가, 깨진 한글 데이터, Analysis 불일치 등을 Settings에서 점검합니다.</span>
+          </div>
+          <div>
+            <strong>운영 로그</strong>
+            <span>평가 실행, 재평가, 점수 수정, 최종확정, 확정 해제, 삭제, 복원 같은 주요 작업이 로그로 남습니다.</span>
+          </div>
+          <div>
+            <strong>버전 기록</strong>
+            <span>평가 결과에는 사용 모델, 평가 프롬프트 버전, 루브릭 프롬프트 버전, SAFE Model 버전이 저장됩니다.</span>
+          </div>
+          <div>
+            <strong>확정 해제</strong>
+            <span>현재 단계에서는 Reports에서 `확정 해제`를 눌러 Evaluations로 되돌릴 수 있으며, 작업은 로그에 기록됩니다.</span>
+          </div>
+        </div>
+      </article>
     </section>
   );
+}
+
+function hasBrokenKorean(value: unknown): boolean {
+  if (typeof value === "string") {
+    return /\?{2,}/.test(value) || value.includes("�");
+  }
+  if (Array.isArray(value)) return value.some((item) => hasBrokenKorean(item));
+  if (value && typeof value === "object") {
+    return Object.values(value).some((item) => hasBrokenKorean(item));
+  }
+  return false;
+}
+
+function createDataIssues(state: AppStateData) {
+  const issues: string[] = [];
+  const assignmentIds = new Set(state.assignments.map((assignment) => assignment.id));
+  const submissionIds = new Set(state.submissions.map((submission) => submission.id));
+  const rubricIds = new Set(state.rubrics.map((rubric) => rubric.id));
+  const baselineIds = new Set(state.aiBaselines.map((baseline) => baseline.id));
+
+  const orphanSubmissions = state.submissions.filter((submission) => !assignmentIds.has(submission.assignmentId));
+  if (orphanSubmissions.length) issues.push(`과제 없는 제출물 ${orphanSubmissions.length}개`);
+
+  const orphanEvaluations = state.evaluations.filter((evaluation) => !submissionIds.has(evaluation.submissionId));
+  if (orphanEvaluations.length) issues.push(`제출물 없는 평가 ${orphanEvaluations.length}개`);
+
+  const assignmentsWithoutRubric = state.assignments.filter((assignment) => !rubricIds.has(assignment.rubricSetId));
+  if (assignmentsWithoutRubric.length) issues.push(`평가세트 없는 과제 ${assignmentsWithoutRubric.length}개`);
+
+  const brokenAiScores = state.aiGeneratedResults.flatMap((result) =>
+    result.scores.flatMap((score) => score.modelScores.filter((modelScore) => !baselineIds.has(modelScore.baselineId)))
+  );
+  if (brokenAiScores.length) issues.push(`AI Baseline 없는 AI Generated 점수 ${brokenAiScores.length}개`);
+
+  const brokenAnalyses = state.similarityAnalyses.filter((analysis) =>
+    analysis.pairs.some((pair) => !submissionIds.has(pair.submissionAId) || !submissionIds.has(pair.submissionBId))
+  );
+  if (brokenAnalyses.length) issues.push(`현재 제출물과 불일치하는 Analysis 결과 ${brokenAnalyses.length}개`);
+
+  if (hasBrokenKorean({
+    rubrics: state.rubrics,
+    assignments: state.assignments,
+    taskTypes: state.taskTypes,
+    submissions: state.submissions,
+    evaluations: state.evaluations,
+  })) {
+    issues.push("깨진 한글 데이터 의심: ?? 또는 � 문자가 감지되었습니다.");
+  }
+
+  return issues;
+}
+
+function createSafeExplanation(
+  evaluation: Evaluation,
+  similaritySummary?: SimilaritySubmissionSummary,
+  aiGeneratedScore?: AiGeneratedSubmissionScore
+) {
+  if (evaluation.rubrixTuningScore === undefined) {
+    return "아직 Rubrix Tuning이 계산되지 않았습니다. Evaluations에서 Rubrix Tuning을 실행하면 보정 사유가 함께 표시됩니다.";
+  }
+
+  const reasons: string[] = [];
+  if ((aiGeneratedScore?.averageScore ?? 0) >= 60) reasons.push("AI Baseline과의 평균 유사도가 높습니다.");
+  if ((similaritySummary?.exactScore ?? 0) >= 60) reasons.push("문장일치 점수가 높습니다.");
+  if ((similaritySummary?.structureScore ?? 0) >= 60) reasons.push("구조유사 점수가 높습니다.");
+  if ((similaritySummary?.score ?? 0) <= 20 && (aiGeneratedScore?.averageScore ?? 0) <= 20) {
+    reasons.push("동료 제출물 및 AI Baseline 대비 유사도가 낮아 독창성 신호가 있습니다.");
+  }
+  if (evaluation.rubrixTuningNote) reasons.push(evaluation.rubrixTuningNote);
+
+  return reasons.length
+    ? reasons.join(" ")
+    : "SAFE Model은 AI 원점수, 제출물 간 유사도, AI Baseline 유사도를 코호트 기준으로 함께 검토해 참고 보정값을 산출했습니다.";
 }
 
 function SettingsPanel({
@@ -3802,12 +4162,25 @@ function SettingsPanel({
   setAiModel,
   downloadBackup,
   restoreBackup,
+  appState,
+  autoBackups,
+  auditLogs,
 }: {
   aiModel: string;
   setAiModel: React.Dispatch<React.SetStateAction<string>>;
   downloadBackup: () => void;
   restoreBackup: (state: Partial<AppStateData>) => void;
+  appState: AppStateData;
+  autoBackups: BackupSnapshot[];
+  auditLogs: AuditLog[];
 }) {
+  const [restorePreview, setRestorePreview] = useState<{
+    fileName: string;
+    createdAt?: string;
+    data: Partial<AppStateData>;
+  } | null>(null);
+  const dataIssues = createDataIssues(appState);
+
   function handleRestoreFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -3818,7 +4191,11 @@ function SettingsPanel({
       try {
         const parsed = JSON.parse(String(reader.result));
         const nextState = parsed.data ?? parsed;
-        restoreBackup(nextState);
+        setRestorePreview({
+          fileName: file.name,
+          createdAt: parsed.createdAt,
+          data: nextState,
+        });
       } catch {
         window.alert("백업 파일을 읽지 못했습니다. Rubrix JSON 백업 파일인지 확인해 주세요.");
       }
@@ -3867,6 +4244,69 @@ function SettingsPanel({
           중요한 평가 전후에는 `백업 다운로드`를 눌러 PC에 파일을 보관해 주세요. 파일명은
           `rubrix-backup-날짜.json` 형식으로 저장됩니다.
         </p>
+        {restorePreview ? (
+          <div className="restore-preview">
+            <strong>복원 미리보기: {restorePreview.fileName}</strong>
+            <span>백업 생성일: {restorePreview.createdAt ? new Date(restorePreview.createdAt).toLocaleString("ko-KR") : "알 수 없음"}</span>
+            <span>
+              과제 {restorePreview.data.assignments?.length ?? 0}개 · 제출물 {restorePreview.data.submissions?.length ?? 0}개 · 평가{" "}
+              {restorePreview.data.evaluations?.length ?? 0}개
+            </span>
+            <span>
+              현재 데이터: 과제 {appState.assignments.length}개 · 제출물 {appState.submissions.length}개 · 평가{" "}
+              {appState.evaluations.length}개
+            </span>
+            <div className="button-group">
+              <button className="primary-button" type="button" onClick={() => restoreBackup(restorePreview.data)}>
+                복원 확정
+              </button>
+              <button className="secondary-button" type="button" onClick={() => setRestorePreview(null)}>
+                취소
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {autoBackups.length ? (
+          <div className="backup-history-list">
+            <h3>자동 백업 이력</h3>
+            {autoBackups.map((backup) => (
+              <div className="backup-history-row" key={backup.id}>
+                <div>
+                  <strong>{backup.reason}</strong>
+                  <span>{new Date(backup.createdAt).toLocaleString("ko-KR")} · {backup.summary}</span>
+                </div>
+                <button className="secondary-button compact-action" type="button" onClick={() => restoreBackup(backup.data)}>
+                  복원
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </article>
+
+      <article className="panel backup-panel">
+        <h2>Data Check</h2>
+        <p className="muted">데이터 무결성과 한글 손상 가능성을 점검합니다.</p>
+        <div className={dataIssues.length ? "data-check-list warning" : "data-check-list"}>
+          {dataIssues.length ? (
+            dataIssues.map((issue) => <div key={issue}>{issue}</div>)
+          ) : (
+            <div>현재 감지된 데이터 문제는 없습니다.</div>
+          )}
+        </div>
+      </article>
+
+      <article className="panel backup-panel">
+        <h2>운영 로그</h2>
+        <div className="audit-log-list">
+          {auditLogs.length === 0 ? <p className="muted">아직 기록된 운영 로그가 없습니다.</p> : null}
+          {auditLogs.slice(0, 20).map((log) => (
+            <div className="audit-log-row" key={log.id}>
+              <strong>{log.action}</strong>
+              <span>{new Date(log.createdAt).toLocaleString("ko-KR")} · {log.message}</span>
+            </div>
+          ))}
+        </div>
       </article>
     </section>
   );

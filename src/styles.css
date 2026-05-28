@@ -339,6 +339,51 @@ h2 {
   margin-bottom: 0;
 }
 
+.restore-preview,
+.backup-history-list,
+.audit-log-list {
+  display: grid;
+  gap: 8px;
+}
+
+.restore-preview,
+.backup-history-row,
+.audit-log-row,
+.data-check-list div {
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.restore-preview span,
+.backup-history-row span,
+.audit-log-row span {
+  color: #64748b;
+  display: block;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.backup-history-row {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.data-check-list {
+  display: grid;
+  gap: 8px;
+}
+
+.data-check-list.warning div {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+  font-weight: 800;
+}
+
 .confirm-box {
   background: #f8fafc;
   border: 1px solid #bfdbfe;
@@ -454,6 +499,47 @@ h2 {
 .histogram-bin strong {
   color: #0f172a;
   font-size: 13px;
+}
+
+.score-monitor-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.score-monitor-grid div {
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.score-monitor-grid span,
+.score-monitor-grid strong {
+  display: block;
+}
+
+.score-monitor-grid span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.score-monitor-grid strong {
+  color: #0f172a;
+  font-size: 18px;
+  margin-top: 4px;
+}
+
+.score-warning {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  color: #9a3412;
+  font-weight: 900;
+  margin: 14px 0 0;
+  padding: 10px 12px;
 }
 
 
@@ -1034,6 +1120,37 @@ h2 {
 
 .student-report-box {
   max-height: 430px;
+}
+
+.safe-explanation-box {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 10px;
+}
+
+.safe-explanation-box div {
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.safe-explanation-box span,
+.safe-explanation-box strong {
+  display: block;
+}
+
+.safe-explanation-box span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.safe-explanation-box strong {
+  color: #0f172a;
+  font-size: 18px;
+  margin-top: 4px;
 }
 
 .safe-guide {
