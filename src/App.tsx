@@ -29,7 +29,8 @@ type MenuKey =
   | "evaluations"
   | "reports"
   | "settings"
-  | "safeModel";
+  | "safeModel"
+  | "userManual";
 
 type Criterion = {
   id: string;
@@ -317,15 +318,7 @@ const seedRubric: RubricSet = {
   ],
 };
 
-const initialAssignments: Assignment[] = [
-  {
-    id: "assignment-1",
-    title: "샘플 학술 리포트",
-    description: "리포트가 과제 질문에 근거를 바탕으로 답하고 있는지 평가합니다.",
-    taskType: "case-analysis",
-    rubricSetId: seedRubric.id,
-  },
-];
+const initialAssignments: Assignment[] = [];
 
 function category(
   id: string,
@@ -360,6 +353,7 @@ const menu = [
   { key: "reports", label: "Reports", icon: BarChart3 },
   { key: "settings", label: "Settings", icon: Settings },
   { key: "safeModel", label: "Rubrix Tuning (SAFE Model)", icon: ShieldCheck },
+  { key: "userManual", label: "User Manual", icon: FileText },
 ] satisfies { key: MenuKey; label: string; icon: typeof LayoutDashboard }[];
 
 function statusLabel(status: Evaluation["status"]) {
@@ -1248,6 +1242,7 @@ export function App() {
         )}
         {activeMenu === "settings" && <SettingsPanel aiModel={aiModel} setAiModel={setAiModel} />}
         {activeMenu === "safeModel" && <SafeModelGuide />}
+        {activeMenu === "userManual" && <UserManualGuide />}
       </main>
     </div>
   );
@@ -3458,6 +3453,155 @@ function SafeModelGuide() {
           <code>Z_S = Z_sim + w_A·z_AIES + w_int·Z_int</code>
           <code>g = −tanh(k · Z_S)</code>
           <code>RTS = AIES + ρ·[max(g,0)(M−AIES) + min(g,0)AIES]</code>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function UserManualGuide() {
+  return (
+    <section className="manual-guide">
+      <article className="safe-hero manual-hero">
+        <div>
+          <p className="eyebrow">Rubrix User Manual</p>
+          <h2>기본 사용설명서</h2>
+          <p>
+            Rubrix는 평가세트 설정, 과제 관리, 제출물 등록, AI 평가, 유사도 분석, SAFE 기반 Rubrix
+            Tuning, 최종 보고서 확인까지 한 흐름으로 운영하는 리포트 평가 시스템입니다.
+          </p>
+        </div>
+        <div className="safe-hero-metric">
+          <span>권장 흐름</span>
+          <strong>7</strong>
+          <small>단계</small>
+        </div>
+      </article>
+
+      <article className="panel">
+        <h2>빠른 시작</h2>
+        <div className="manual-steps">
+          {[
+            ["1", "Rubric Sets", "평가세트와 카테고리별 배점을 확인하고 필요하면 배점 수정으로 조정합니다."],
+            ["2", "Assignments", "과제명, 과제유형, 설명, 사용할 평가세트를 등록합니다."],
+            ["3", "Submissions", "과제를 선택한 뒤 학생 제출물을 텍스트 또는 PDF로 등록하고 AI 평가를 실행합니다."],
+            ["4", "AI Diagnosis", "과제별 AI Baseline을 만들고 모델별 기준 답안을 붙여 넣습니다."],
+            ["5", "AI Generated Score", "학생 제출물과 AI Baseline의 유사도를 과제 단위로 일괄 계산합니다."],
+            ["6", "Analysis", "같은 과제 제출물끼리 문장일치, 문장유사, 문단유사, 구조유사를 분석합니다."],
+            ["7", "Evaluations", "AI 점수, 유사도, Rubrix Tuning Score를 보고 최종조정점수와 보고서를 확정합니다."],
+          ].map(([step, title, text]) => (
+            <div className="manual-step" key={step}>
+              <b>{step}</b>
+              <strong>{title}</strong>
+              <span>{text}</span>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <div className="manual-grid">
+        <article className="panel">
+          <h2>1. 평가세트 준비</h2>
+          <p className="muted">
+            `Rubric Sets`에서 평가 기준과 배점을 관리합니다. 기본 구조는 공통 평가 80점과 과제유형별
+            추가 평가 20점이지만, 각 카테고리의 배점은 합계 100점 기준으로 수정할 수 있습니다.
+          </p>
+          <ul className="safe-bullets">
+            <li>평가항목 사용 여부를 체크해 실제 평가에 반영할 항목을 정합니다.</li>
+            <li>배점은 `배점 수정`을 누른 뒤 수정하고, 합계가 100점일 때 확정합니다.</li>
+            <li>페르소나, 공통기준, 중요한 원칙은 AI 평가 프롬프트의 기본 방향이 됩니다.</li>
+          </ul>
+        </article>
+
+        <article className="panel">
+          <h2>2. 과제 만들기</h2>
+          <p className="muted">
+            `Assignments`에서 실제 평가할 과제를 만듭니다. 한 평가자가 여러 과제를 관리할 수 있으므로,
+            이후 Submissions, Analysis, Evaluations, Reports는 과제 선택을 기준으로 운영됩니다.
+          </p>
+          <ul className="safe-bullets">
+            <li>과제명은 학생 제출물을 구분하는 가장 중요한 기준입니다.</li>
+            <li>과제유형은 기본 목록에서 선택하거나 새 유형을 추가할 수 있습니다.</li>
+            <li>과제 설명에는 평가자가 AI에 참고시키고 싶은 과제 지시문을 적는 것이 좋습니다.</li>
+          </ul>
+        </article>
+      </div>
+
+      <div className="manual-grid">
+        <article className="panel">
+          <h2>3. 제출물 등록과 AI 평가</h2>
+          <p className="muted">
+            `Submissions`에서 과제를 선택하고 학생별 제출물을 등록합니다. PDF 업로드 또는 텍스트 붙여넣기를
+            사용할 수 있으며, 평가 실행 후 결과는 `Evaluations`에서 검토합니다.
+          </p>
+          <ul className="safe-bullets">
+            <li>같은 과제의 제출물은 반드시 같은 과제로 등록해야 이후 비교분석이 정확합니다.</li>
+            <li>평가 실행 중에는 로딩 표시가 나타납니다.</li>
+            <li>제출물을 삭제하면 연결된 평가 결과도 함께 삭제됩니다.</li>
+          </ul>
+        </article>
+
+        <article className="panel">
+          <h2>4. AI Diagnosis와 Baseline</h2>
+          <p className="muted">
+            `AI Diagnosis`는 AI가 작성했을 가능성을 참고하기 위한 기준 답안 보관소입니다. ChatGPT, Claude,
+            Gemini 등에서 같은 과제 지시문으로 만든 답안을 모델별 Baseline으로 붙여 넣습니다.
+          </p>
+          <ul className="safe-bullets">
+            <li>최대 6개 모델을 기준으로 운영하는 것을 권장합니다.</li>
+            <li>Baseline은 과제별로 관리됩니다.</li>
+            <li>사용하지 않을 Baseline은 비활성화하거나 삭제할 수 있습니다.</li>
+          </ul>
+        </article>
+      </div>
+
+      <div className="manual-grid">
+        <article className="panel">
+          <h2>5. 유사도 분석</h2>
+          <p className="muted">
+            `Analysis`는 같은 과제 제출물끼리 비교합니다. 결과는 각 리포트가 다른 리포트들과 얼마나 유사한지
+            상위 10% 평균을 기준으로 요약되어 SAFE Model에 사용됩니다.
+          </p>
+          <ul className="safe-bullets">
+            <li>Exact Match는 거의 같은 문장 또는 긴 문장 일치를 봅니다.</li>
+            <li>Sentence, Paragraph, Structure Similarity는 표현·문단·구조의 유사성을 봅니다.</li>
+            <li>선택하지 않은 분석 기준은 결과에서 `-`로 표시됩니다.</li>
+          </ul>
+        </article>
+
+        <article className="panel">
+          <h2>6. Evaluations에서 확정</h2>
+          <p className="muted">
+            `Evaluations`에서는 최종확정 전 평가만 검토합니다. AI 평가점수, AI Generated Score, Analysis,
+            Rubrix Tuning Score를 함께 보고 최종조정점수와 피드백, 학생용 보고서를 수정합니다.
+          </p>
+          <ul className="safe-bullets">
+            <li>`Rubrix Tuning` 버튼은 선택한 과제의 미확정 평가를 일괄 계산합니다.</li>
+            <li>Rubrix Tuning Score는 참고값이며 최종조정점수는 평가자가 직접 확정합니다.</li>
+            <li>`평가완료`를 누르면 결과가 Reports로 이동합니다.</li>
+          </ul>
+        </article>
+      </div>
+
+      <article className="panel">
+        <h2>7. Reports와 운영 주의사항</h2>
+        <div className="manual-note-grid">
+          <div>
+            <strong>Reports</strong>
+            <span>최종확정된 평가 결과만 과제별로 확인합니다. 학생에게 전달할 피드백과 보고서를 여기서 점검합니다.</span>
+          </div>
+          <div>
+            <strong>데이터 저장</strong>
+            <span>Supabase가 연결되어 있으면 입력 데이터는 자동 저장됩니다. 새로고침해도 유지됩니다.</span>
+          </div>
+          <div>
+            <strong>AI 평가</strong>
+            <span>OpenAI API 키가 설정되어 있어야 실제 평가가 실행됩니다. 키가 없으면 임시 평가 결과가 표시됩니다.</span>
+          </div>
+          <div>
+            <strong>윤리적 사용</strong>
+            <span>Similarity와 AI Footprint는 부정행위의 단독 증거가 아니라 평가자 검토를 돕는 보조 신호입니다.</span>
+          </div>
         </div>
       </article>
     </section>

@@ -1183,6 +1183,83 @@ h2 {
   padding: 9px 11px;
 }
 
+.manual-guide {
+  display: grid;
+  gap: 18px;
+}
+
+.manual-hero {
+  background: linear-gradient(135deg, #2563eb, #1e3a8a);
+}
+
+.manual-steps {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.manual-step {
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  display: grid;
+  gap: 7px;
+  min-height: 150px;
+  padding: 12px;
+}
+
+.manual-step b {
+  align-items: center;
+  background: #1d4ed8;
+  border-radius: 999px;
+  color: white;
+  display: inline-flex;
+  height: 26px;
+  justify-content: center;
+  width: 26px;
+}
+
+.manual-step strong {
+  color: #1e3a8a;
+  font-size: 14px;
+}
+
+.manual-step span {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.manual-grid,
+.manual-note-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.manual-note-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.manual-note-grid div {
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+}
+
+.manual-note-grid strong {
+  color: #1e3a8a;
+}
+
+.manual-note-grid span {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .analysis-layout {
   display: grid;
   gap: 18px;
@@ -1702,6 +1779,9 @@ h2 {
   .safe-grid,
   .safe-flow,
   .safe-table,
+  .manual-steps,
+  .manual-grid,
+  .manual-note-grid,
   .form-grid {
     grid-template-columns: 1fr;
   }
