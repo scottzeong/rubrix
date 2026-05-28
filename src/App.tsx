@@ -2754,58 +2754,25 @@ function Evaluations({
   }
 
   return (
-    <article className="panel">
-      <h2>AI 평가 결과</h2>
-      {filteredPendingEvaluations.length === 0 ? (
-        <p className="muted">검토할 평가 결과가 없습니다. 최종확정된 결과는 Reports에서 확인하세요.</p>
-      ) : null}
-      <div className="evaluation-list">
-        {filteredPendingEvaluations.map((evaluation) => {
-          const submission = submissions.find((item) => item.id === evaluation.submissionId);
-          const isFinalized = evaluation.status === "finalized";
-          return (
-            <div className="result-card editable-result" key={evaluation.id}>
-              <div>
-                <strong>{submission?.studentName ?? "알 수 없는 학생"}</strong>
-                <span>{statusLabel(evaluation.status)}</span>
-              </div>
-              <label className="field score-field">
-                <span>평가 점수</span>
-                <input
-                  min="0"
-                  max="100"
-                  type="number"
-                  value={evaluation.totalScore}
-                  disabled={isFinalized}
-                  onChange={(event) => updateEvaluation(evaluation.id, "totalScore", event.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>평가자 피드백</span>
-                <textarea
-                  value={evaluation.feedback}
-                  disabled={isFinalized}
-                  onChange={(event) => updateEvaluation(evaluation.id, "feedback", event.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>학생에게 제시할 평가보고서</span>
-                <textarea
-                  className="report-editor"
-                  value={evaluation.studentReport}
-                  disabled={isFinalized}
-                  onChange={(event) => updateEvaluation(evaluation.id, "studentReport", event.target.value)}
-                />
-              </label>
-              <button className="secondary-button" disabled={isFinalized} onClick={() => finalizeEvaluation(evaluation.id)}>
-                <CheckCircle2 size={16} />
-                {isFinalized ? "확정됨" : "최종 확정"}
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </article>
+    <section className="reports-layout">
+      <article className="panel">
+        <h2>Evaluations</h2>
+        <label className="field compact-assignment-filter">
+          <span>과제</span>
+          <select value={selectedFilterAssignment?.id ?? ""} onChange={(event) => setSelectedAssignmentFilterId(event.target.value)}>
+            {assignments.map((assignment) => (
+              <option key={assignment.id} value={assignment.id}>
+                {assignment.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="muted">선택한 과제에 검토할 AI완료 평가가 없습니다. 최종 확정된 결과는 Reports에서 확인하세요.</p>
+      </article>
+      <article className="panel report-detail-panel">
+        <p className="muted">왼쪽 과제 필터에서 검토할 과제를 선택하세요.</p>
+      </article>
+    </section>
   );
 }
 
@@ -3288,7 +3255,7 @@ function Reports({
   const selectedReportAssignment = assignments.find((assignment) => assignment.id === selectedAssignmentId) ?? assignments[0];
   const reportEvaluations = evaluations.filter((evaluation) => {
     const submission = submissions.find((item) => item.id === evaluation.submissionId);
-    return !selectedReportAssignment || submission?.assignmentId === selectedReportAssignment.id;
+    return evaluation.status === "finalized" && (!selectedReportAssignment || submission?.assignmentId === selectedReportAssignment.id);
   });
   const [selectedEvaluationId, setSelectedEvaluationId] = useState(reportEvaluations[0]?.id ?? "");
   const selectedEvaluation =
