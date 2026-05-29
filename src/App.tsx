@@ -1361,11 +1361,19 @@ export function App() {
   }
 
   function runRubrixTuning(assignmentId: string) {
-    const assignmentEvaluationSignals = evaluations
-      .filter((evaluation) => evaluation.status !== "finalized")
+    const assignmentPendingEvaluations = evaluations.filter((evaluation) => {
+      if (evaluation.status === "finalized") return false;
+      const submission = submissions.find((item) => item.id === evaluation.submissionId);
+      return submission?.assignmentId === assignmentId;
+    });
+    const normalizedEvaluationMap = new Map(
+      normalizeAiEvaluationScores(assignmentPendingEvaluations).map((evaluation) => [evaluation.id, evaluation])
+    );
+    const assignmentEvaluationSignals = assignmentPendingEvaluations
       .map((evaluation) => {
         const submission = submissions.find((item) => item.id === evaluation.submissionId);
-        if (submission?.assignmentId !== assignmentId) return null;
+        if (!submission) return null;
+        const normalizedEvaluation = normalizedEvaluationMap.get(evaluation.id) ?? evaluation;
         const similaritySummary = similarityAnalyses
           .find((analysis) => analysis.assignmentId === assignmentId)
           ?.submissionSummaries?.find((summary) => summary.submissionId === submission.id);
@@ -1375,7 +1383,10 @@ export function App() {
 
         const signal: SafeSignal = {
           evaluationId: evaluation.id,
-          baseScore: evaluation.aiNormalizedScore ?? evaluation.aiEvaluationScore ?? evaluation.totalScore,
+          baseScore:
+            normalizedEvaluation.aiNormalizedScore ??
+            normalizedEvaluation.aiEvaluationScore ??
+            normalizedEvaluation.totalScore,
           aiEvaluationScore: evaluation.aiEvaluationScore ?? evaluation.totalScore,
           exact: similaritySummary?.exactScore,
           sentence: similaritySummary?.sentenceScore,
@@ -1397,9 +1408,11 @@ export function App() {
     setEvaluations((current) =>
       current.map((evaluation) => {
         const result = tuningMap.get(evaluation.id);
+        const normalizedEvaluation = normalizedEvaluationMap.get(evaluation.id);
         return result
           ? {
               ...evaluation,
+              aiNormalizedScore: normalizedEvaluation?.aiNormalizedScore ?? evaluation.aiNormalizedScore,
               rubrixTuningScore: result.score,
               rubrixTuningDelta: result.delta,
               rubrixTuningNote: result.note,
