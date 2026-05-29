@@ -702,17 +702,6 @@ async function fetchJsonWithTimeout(url: string, options?: RequestInit, timeoutM
   }
 }
 
-function readLocalAutoBackups(fallback: BackupSnapshot[] = []) {
-  try {
-    const raw = window.localStorage.getItem("rubrix-auto-backups");
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.slice(0, 5) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 export function App() {
   const [activeMenu, setActiveMenu] = useState<MenuKey>("dashboard");
   const [rubrics, setRubrics] = useState<RubricSet[]>([seedRubric]);
@@ -794,7 +783,7 @@ export function App() {
           setAiGeneratedResults(payload.data.aiGeneratedResults ?? []);
           setEvaluationHistories(payload.data.evaluationHistories ?? []);
           setAuditLogs(payload.data.auditLogs ?? []);
-          setAutoBackups(readLocalAutoBackups(payload.data.autoBackups ?? []));
+          setAutoBackups([]);
           setSelectedRubricId(payload.data.selectedRubricId ?? seedRubric.id);
           setAiModel(payload.data.aiModel ?? "gpt-5.4-mini");
         }
@@ -855,19 +844,12 @@ export function App() {
     if (!isStateLoaded) return;
 
     try {
-      window.localStorage.setItem(
-        "rubrix-local-backup",
-        JSON.stringify({
-          version: 1,
-          createdAt: new Date().toISOString(),
-          data: currentAppState,
-        })
-      );
-      window.localStorage.setItem("rubrix-auto-backups", JSON.stringify(autoBackups.slice(0, 5)));
+      window.localStorage.removeItem("rubrix-local-backup");
+      window.localStorage.removeItem("rubrix-auto-backups");
     } catch {
-      // Local backup is best-effort; Supabase save status remains the primary visible signal.
+      // Legacy local backup cleanup is best-effort.
     }
-  }, [autoBackups, currentAppState, isStateLoaded]);
+  }, [currentAppState, isStateLoaded]);
 
   const stats = useMemo(
     () => [
@@ -901,16 +883,8 @@ export function App() {
   }
 
   function createAutoBackup(reason: string) {
-    const data = createBackupData();
-    const backup: BackupSnapshot = {
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-      reason,
-      summary: backupSummary(data),
-      data,
-    };
-    setAutoBackups((current) => [backup, ...current].slice(0, 5));
-    return backup;
+    void reason;
+    return undefined;
   }
 
   function addAuditLog(action: string, targetType: string, message: string, targetId?: string) {
@@ -944,7 +918,7 @@ export function App() {
     setAiGeneratedResults(nextState.aiGeneratedResults ?? []);
     setEvaluationHistories(nextState.evaluationHistories ?? []);
     setAuditLogs(nextState.auditLogs ?? []);
-    setAutoBackups("autoBackups" in nextState ? (nextState as Partial<AppStateData>).autoBackups ?? [] : []);
+    setAutoBackups([]);
     setSelectedRubricId(nextState.selectedRubricId ?? nextState.rubrics?.[0]?.id ?? seedRubric.id);
     setAiModel(nextState.aiModel ?? "gpt-5.4-mini");
     addAuditLog("restore_backup", "app_state", "백업 파일에서 데이터를 복원했습니다.");
@@ -1553,7 +1527,6 @@ export function App() {
             downloadBackup={downloadBackup}
             restoreBackup={restoreAppState}
             appState={currentAppState}
-            autoBackups={autoBackups}
             auditLogs={auditLogs}
           />
         )}
@@ -4265,7 +4238,6 @@ function SettingsPanel({
   downloadBackup,
   restoreBackup,
   appState,
-  autoBackups,
   auditLogs,
 }: {
   aiModel: string;
@@ -4273,7 +4245,6 @@ function SettingsPanel({
   downloadBackup: () => void;
   restoreBackup: (state: Partial<AppStateData>) => void;
   appState: AppStateData;
-  autoBackups: BackupSnapshot[];
   auditLogs: AuditLog[];
 }) {
   const [restorePreview, setRestorePreview] = useState<{
@@ -4282,6 +4253,7 @@ function SettingsPanel({
     data: Partial<AppStateData>;
   } | null>(null);
   const dataIssues = createDataIssues(appState);
+  const autoBackups: BackupSnapshot[] = [];
 
   function handleRestoreFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -4325,12 +4297,19 @@ function SettingsPanel({
         </div>
       </article>
 
-      <article className="panel backup-panel">
+      <article className="panel backup-panel manual-backup-panel">
         <div>
           <h2>데이터 백업</h2>
           <p className="muted">
             현재 Rubrix 데이터를 PC에 JSON 파일로 저장하거나, 저장해 둔 백업 파일로 복원할 수 있습니다.
             브라우저에는 최근 상태가 자동 로컬 백업으로도 저장됩니다.
+          </p>
+        </div>
+        <div className="manual-backup-copy">
+          <h2>데이터 백업</h2>
+          <p className="muted">
+            자동 백업 이력은 저장하지 않습니다. 중요한 평가, 삭제, Rubrix Tuning 실행 전후에는 직접 백업을 다운로드해
+            PC에 보관해 주세요.
           </p>
         </div>
         <div className="button-group">

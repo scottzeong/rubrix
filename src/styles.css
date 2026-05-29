@@ -324,6 +324,34 @@ h2 {
   gap: 12px;
 }
 
+.manual-backup-panel > div:first-child {
+  display: none;
+}
+
+.manual-backup-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.manual-backup-panel .backup-note {
+  display: none;
+}
+
+.manual-backup-panel .button-group > .primary-button,
+.manual-backup-panel .button-group > .backup-file-button {
+  font-size: 0;
+}
+
+.manual-backup-panel .button-group > .primary-button::after {
+  content: "백업 다운로드";
+  font-size: 14px;
+}
+
+.manual-backup-panel .button-group > .backup-file-button::after {
+  content: "백업 복원";
+  font-size: 14px;
+}
+
 .backup-file-button {
   position: relative;
 }
