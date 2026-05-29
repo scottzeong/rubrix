@@ -3833,8 +3833,9 @@ function SafeModelGuide() {
           <p className="eyebrow">Rubrix Tuning Mode</p>
           <h2>SAFE Model</h2>
           <p>
-            SAFE는 Similarity and AI Footprint Evaluation Model의 약자입니다. AI 평가점수에 표절 유사도와
-            AI 생성 유사도를 결합해, 동일 과제 제출자 집단 안에서 Rubrix Tuning Score를 계산합니다.
+            SAFE는 Similarity and AI Footprint Evaluation Model의 약자입니다. AI 평가점수를 직접 조정하지 않고,
+            AI Normalized Score(AINS)를 기준점으로 제출물 간 유사도와 AI Baseline 유사도를 결합해
+            Rubrix Tuning Score(RTS)를 계산합니다.
           </p>
         </div>
         <div className="safe-hero-metric">
@@ -3865,7 +3866,7 @@ function SafeModelGuide() {
           <div className="safe-signal-list">
             <div>
               <strong>AINS</strong>
-              <span>AI가 평가한 순수 평가점수</span>
+              <span>AI 평가점수를 과제 단위로 정규화한 점수이며, RTS 계산의 유일한 점수 기준입니다.</span>
             </div>
             <div>
               <strong>ST · SP · PP · FP</strong>
@@ -3891,7 +3892,7 @@ function SafeModelGuide() {
             ["1", "신호 표준화", "유사도 신호는 로짓 변환 후 z-score로 변환합니다."],
             ["2", "유사도 위험 합성", "텍스트 위험과 AI 위험을 각각 계산합니다."],
             ["3", "품질×유사 상호작용", "고품질이면서 고유사인 경우 추가 위험으로 봅니다."],
-            ["4", "복합 위험 지수", "Z_sim, AIES, 상호작용 항을 결합합니다."],
+            ["4", "복합 위험 지수", "Z_sim, AINS, 상호작용 항을 결합합니다."],
             ["5", "조정 커널", "g = -tanh(k · Z_S)로 보정 방향과 강도를 정합니다."],
             ["6", "RTS 계산", "AINS에 양수 또는 음수 SAFE 보정값을 더하고 0~100점 범위로 제한합니다."],
             ["7", "가드레일", "소규모 코호트 경고와 최종 하드캡을 적용합니다."],
@@ -3952,13 +3953,14 @@ function SafeFullFormulaPanel() {
       <h2>SAFE Model Full Formula</h2>
       <p className="muted">
         아래 수식은 Rubrix Tuning Score가 계산되는 전체 흐름입니다. RTS는 최종점수를 자동 확정하는 값이 아니라,
-        평가자가 최종조정점수를 검토할 때 참고하는 보정 신호입니다.
+        평가자가 최종조정점수를 검토할 때 참고하는 보정 신호입니다. RTS 단계에서 점수 기준으로 사용하는 값은
+        AI 평가점수가 아니라 AINS입니다.
       </p>
       <div className="safe-formula-sections">
         <div>
           <h3>1. Input Signals</h3>
-          <code>AIES_i = AI Evaluation Score of submission i</code>
-          <code>AINS_i = AI Normalized Score of submission i</code>
+          <code>AIES_i = AI Evaluation Score of submission i. Used only to calculate AINS_i.</code>
+          <code>AINS_i = AI Normalized Score of submission i. This is the only score baseline used by RTS.</code>
           <code>ST_i = sentence exact-match similarity</code>
           <code>SP_i = sentence semantic similarity</code>
           <code>PP_i = paragraph similarity</code>
@@ -4011,7 +4013,8 @@ function SafeFullFormulaPanel() {
           <code>target_max = mean(AIES) + 15</code>
           <code>AINS_i = target_min + ((AIES_i - min(AIES)) / range(AIES)) * 30</code>
           <code>if range(AIES) &gt;= 30: AINS_i = AIES_i</code>
-          <code>Final adjustment score starts from AINS_i and can be edited by the evaluator.</code>
+          <code>RTS calculation starts from AINS_i, not from AIES_i.</code>
+          <code>Final adjustment score shown to the evaluator can be edited manually.</code>
         </div>
       </div>
     </article>
@@ -4130,6 +4133,7 @@ function UserManualGuide() {
           <ul className="safe-bullets">
             <li>AI 평가점수는 AI가 직접 부여한 원점수입니다.</li>
             <li>AI Normalized Score는 점수 쏠림을 완화하기 위한 과제 단위 보정 점수입니다.</li>
+            <li>Rubrix Tuning 단계에서는 AI 평가점수를 다시 사용하지 않고 AI Normalized Score만 점수 기준으로 사용합니다.</li>
             <li>Evaluations의 최종조정점수 기본값은 AI Normalized Score로 시작합니다.</li>
             <li>평가자는 최종조정점수, 피드백, 학생용 보고서를 직접 수정할 수 있습니다.</li>
           </ul>
@@ -4168,9 +4172,11 @@ function UserManualGuide() {
           <p className="muted">
             `Evaluations`에서는 최종확정 전 평가만 검토합니다. AI 평가점수, AI Generated Score, Analysis,
             AI Normalized Score, Rubrix Tuning Score를 함께 보고 최종조정점수와 피드백, 학생용 보고서를 수정합니다.
+            Rubrix Tuning Score는 AI Normalized Score에 SAFE 보정값을 더해 계산합니다.
           </p>
           <ul className="safe-bullets">
             <li>`Rubrix Tuning` 버튼은 선택한 과제의 미확정 평가를 일괄 계산합니다.</li>
+            <li>RTS 기준점은 항상 AI Normalized Score(AINS)입니다.</li>
             <li>최종조정점수는 AI Normalized Score를 기본값으로 시작하며 평가자가 직접 확정합니다.</li>
             <li>Rubrix Tuning Score는 참고값이며 최종점수를 자동 확정하지 않습니다.</li>
             <li>`평가완료`를 누르면 결과가 Reports로 이동합니다.</li>
