@@ -3869,7 +3869,7 @@ function SafeModelGuide() {
             ["3", "품질×유사 상호작용", "고품질이면서 고유사인 경우 추가 위험으로 봅니다."],
             ["4", "복합 위험 지수", "Z_sim, AIES, 상호작용 항을 결합합니다."],
             ["5", "조정 커널", "g = -tanh(k · Z_S)로 보정 방향과 강도를 정합니다."],
-            ["6", "RTS 계산", "잔여 여유분 기반으로 가점·감점을 제한합니다."],
+            ["6", "RTS 계산", "AINS에 양수 또는 음수 SAFE 보정값을 더하고 0~100점 범위로 제한합니다."],
             ["7", "가드레일", "소규모 코호트 경고와 최종 하드캡을 적용합니다."],
           ].map(([step, title, text]) => (
             <div className="safe-flow-step" key={step}>
@@ -3900,6 +3900,7 @@ function SafeModelGuide() {
             <li>권장 코호트 규모는 30명 이상입니다.</li>
             <li>30명 미만도 계산은 가능하지만 참고값으로 표시합니다.</li>
             <li>Rubrix Tuning Score는 최종 판정이 아니라 평가자 검토용 보정 신호입니다.</li>
+            <li>SAFE 보정값은 양수와 음수가 모두 가능하며, 최종 RTS가 100점을 넘으면 100점으로 처리합니다.</li>
             <li>최종조정점수, 피드백, 학생용 보고서는 평가자가 직접 확정합니다.</li>
           </ul>
         </article>
@@ -3912,7 +3913,8 @@ function SafeModelGuide() {
           <code>Z_int = z(ReLU(z_AINS) · ReLU(Z_sim))</code>
           <code>Z_S = Z_sim + w_A·z_AINS + w_int·Z_int</code>
           <code>g = −tanh(k · Z_S)</code>
-          <code>RTS = AINS + ρ·[max(g,0)(M−AINS) + min(g,0)AINS]</code>
+          <code>SAFE Adjustment = ρ·[max(g,0)(M−AINS) + min(g,0)AINS]</code>
+          <code>RTS = clamp(AINS + SAFE Adjustment, 0, 100)</code>
         </div>
       </article>
       <SafeFullFormulaPanel />
@@ -3972,10 +3974,12 @@ function SafeFullFormulaPanel() {
         </div>
         <div>
           <h3>8. Rubrix Tuning Score</h3>
-          <code>RTS_raw_i = AINS_i + rho * [max(g_i, 0) * (100 - AINS_i) + min(g_i, 0) * AINS_i]</code>
+          <code>SAFE_Adjustment_i = rho * [max(g_i, 0) * (100 - AINS_i) + min(g_i, 0) * AINS_i]</code>
+          <code>RTS_raw_i = AINS_i + SAFE_Adjustment_i</code>
           <code>rho = 0.15</code>
           <code>RTS_i = clamp(RTS_raw_i, AINS_i - 8, AINS_i + 8)</code>
           <code>RTS_i = clamp(RTS_i, 0, 100)</code>
+          <code>If RTS_i &gt; 100, RTS_i = 100. If RTS_i &lt; 0, RTS_i = 0.</code>
         </div>
         <div>
           <h3>9. AI Normalized Score</h3>
