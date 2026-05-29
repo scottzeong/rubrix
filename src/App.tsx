@@ -881,7 +881,7 @@ export function App() {
           setAiBaselines(payload.data.aiBaselines ?? []);
           setAiGeneratedResults(payload.data.aiGeneratedResults ?? []);
           setEvaluationHistories([]);
-          setAuditLogs(payload.data.auditLogs ?? []);
+          setAuditLogs((payload.data.auditLogs ?? []).slice(0, 5));
           setSelectedRubricId(payload.data.selectedRubricId ?? seedRubric.id);
           setAiModel(payload.data.aiModel ?? "gpt-5.4-mini");
         }
@@ -989,7 +989,7 @@ export function App() {
       targetId,
       message,
     };
-    setAuditLogs((current) => [log, ...current].slice(0, 200));
+    setAuditLogs((current) => [log, ...current].slice(0, 5));
   }
 
   function createAinsTieBreakers(assignmentId: string, targetEvaluations: Evaluation[]) {
@@ -1034,7 +1034,7 @@ export function App() {
     setAiBaselines(nextState.aiBaselines ?? []);
     setAiGeneratedResults(nextState.aiGeneratedResults ?? []);
     setEvaluationHistories([]);
-    setAuditLogs(nextState.auditLogs ?? []);
+    setAuditLogs((nextState.auditLogs ?? []).slice(0, 5));
     setSelectedRubricId(nextState.selectedRubricId ?? nextState.rubrics?.[0]?.id ?? seedRubric.id);
     setAiModel(nextState.aiModel ?? "gpt-5.4-mini");
     addAuditLog("restore_backup", "app_state", "백업 파일에서 데이터를 복원했습니다.");
@@ -1286,15 +1286,30 @@ export function App() {
 반드시 다음 JSON 형식으로만 응답하세요.
 {
   "total_score": 0,
-  "feedback": "평가 내용 요약 피드백",
-  "student_report": "학생에게 전달할 평가보고서"
+  "feedback": "평가자가 검토할 구체적인 평가 피드백",
+  "student_report": "학생에게 전달할 평가보고서. 리포트 원문을 복사하지 말고, 점수 근거와 개선 조언을 학생용 문체로 작성하세요. 제출 원문 전체나 긴 문단을 그대로 포함하지 마세요."
 }`,
           }),
         }, 60000);
         if (!response.ok) throw new Error(payload.error || "AI 평가 요청에 실패했습니다.");
         evaluatedScore = Math.max(0, Math.min(100, Math.round(Number(payload.result.total_score) || fallbackScore)));
         evaluatedFeedback = payload.result.feedback || evaluatedFeedback;
-        evaluatedStudentReport = payload.result.student_report || evaluatedStudentReport;
+        const nextStudentReport = String(payload.result.student_report || "").trim();
+        evaluatedStudentReport =
+          nextStudentReport && !isLikelyCopiedReport(nextStudentReport, submission.reportText)
+            ? nextStudentReport
+            : createStudentReport({
+                assignmentTitle: assignment?.title ?? "제목 없는 과제",
+                taskType,
+                studentName: submission.studentName,
+                totalScore: evaluatedScore,
+                categories: rubric.categories.map((categoryItem) => ({
+                  name: categoryItem.name,
+                  maxScore: categoryItem.maxScore,
+                  score: Math.max(1, Math.min(categoryItem.maxScore, Math.round(categoryItem.maxScore * (evaluatedScore / 100)))),
+                  criteria: categoryItem.criteria.filter((criterionItem) => criterionItem.enabled).map((criterionItem) => criterionItem.name),
+                })),
+              });
       } catch (error) {
         evaluatedFeedback = `AI 평가 연결 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"} 현재는 임시 평가 결과를 표시합니다.`;
       }
@@ -1683,7 +1698,7 @@ function createStudentReport({
   const categoryLines = categories
     .map(
       (categoryItem) =>
-        `- ${categoryItem.name}: ${categoryItem.score}/${categoryItem.maxScore}점\n  평가기준: ${categoryItem.criteria.join(", ")}\n  피드백: 선택된 기준을 바탕으로 리포트의 강점과 보완점을 검토했습니다. 실제 AI 연동 후에는 본문 근거가 포함된 구체적 평가문으로 대체됩니다.`
+        `- ${categoryItem.name}: ${categoryItem.score}/${categoryItem.maxScore}점\n  평가기준: ${categoryItem.criteria.join(", ")}\n  피드백: 해당 기준에 따라 강점과 보완점을 확인하세요.`
     )
     .join("\n\n");
 
@@ -1702,8 +1717,31 @@ function createStudentReport({
     categoryLines,
     ``,
     `종합 피드백`,
-    `이 보고서는 선택된 루브릭 기준에 맞추어 자동 작성된 초안입니다. 평가자는 최종 전달 전에 점수, 근거, 표현을 검토하고 필요하면 수정해야 합니다.`,
+    `이 보고서는 평가 기준에 따라 작성된 학생 전달용 초안입니다. 평가자는 최종 전달 전에 점수, 근거, 개선 조언을 확인하고 필요한 부분을 수정해야 합니다.`,
   ].join("\n");
+}
+
+function isLikelyCopiedReport(studentReport: string, reportText: string) {
+  const normalizedReport = normalizeText(reportText);
+  const normalizedStudentReport = normalizeText(studentReport);
+  if (!normalizedReport || !normalizedStudentReport) return false;
+  if (normalizedStudentReport === normalizedReport) return true;
+  if (normalizedStudentReport.length > 500 && normalizedReport.includes(normalizedStudentReport.slice(0, 500))) return true;
+  if (normalizedReport.length > 800 && normalizedStudentReport.includes(normalizedReport.slice(0, 800))) return true;
+  return false;
+}
+
+function safeStudentReportText(studentReport: string, reportText?: string) {
+  if (reportText && isLikelyCopiedReport(studentReport, reportText)) {
+    return [
+      "학생용 보고서 점검 필요",
+      "",
+      "현재 저장된 학생용 보고서가 제출 원문과 지나치게 유사하여 그대로 표시하지 않습니다.",
+      "Evaluations에서 피드백과 학생용 보고서를 다시 작성하거나, 재평가를 실행한 뒤 최종확정해 주세요.",
+    ].join("\n");
+  }
+
+  return studentReport;
 }
 
 function Dashboard({
@@ -1744,6 +1782,7 @@ function Dashboard({
   const scoreDeviation = evaluatedScores.length ? standardDeviation(evaluatedScores) : 0;
   const scoreRange =
     evaluatedScores.length > 0 ? Math.max(...evaluatedScores) - Math.min(...evaluatedScores) : 0;
+  const occupiedScoreBinCount = scoreBins.filter((bin) => bin.count > 0).length;
   const highScoreRate =
     evaluatedScores.length > 0
       ? (evaluatedScores.filter((score) => score >= 90).length / evaluatedScores.length) * 100
@@ -1752,7 +1791,7 @@ function Dashboard({
     evaluatedScores.length > 0
       ? (evaluatedScores.filter((score) => score <= 60).length / evaluatedScores.length) * 100
       : 0;
-  const narrowDistributionWarning = evaluatedScores.length >= 5 && scoreRange < 30;
+  const narrowDistributionWarning = evaluatedScores.length >= 5 && occupiedScoreBinCount <= 5;
   const formatStatNumber = (value: number) => value.toFixed(2);
   const flowSteps = [
     {
@@ -2545,6 +2584,7 @@ function Submissions({
   const [submissionSortDirection, setSubmissionSortDirection] = useState<"asc" | "desc">("asc");
   const [isRunningAiGenerated, setIsRunningAiGenerated] = useState(false);
   const [isRunningSimilarity, setIsRunningSimilarity] = useState(false);
+  const [isResettingMaterials, setIsResettingMaterials] = useState(false);
   const filteredSubmissions = submissions.filter(
     (submission) => submission.assignmentId === (selectedAssignmentId || assignments[0]?.id)
   );
@@ -2595,21 +2635,33 @@ function Submissions({
   function handleRunAiGeneratedDiagnosis() {
     if (!activeAssignmentId || isRunningAiGenerated || !canRunStep1) return;
     setIsRunningAiGenerated(true);
-    try {
+    window.setTimeout(() => {
       runAiGeneratedDiagnosis(activeAssignmentId);
-    } finally {
       setIsRunningAiGenerated(false);
-    }
+    }, 50);
   }
 
   function handleRunSimilarityAnalysis() {
     if (!activeAssignmentId || isRunningSimilarity || !canRunStep2) return;
     setIsRunningSimilarity(true);
-    try {
+    window.setTimeout(() => {
       runSimilarityAnalysis(activeAssignmentId, ["exact", "sentence", "paragraph", "structure"]);
-    } finally {
       setIsRunningSimilarity(false);
+    }, 50);
+  }
+
+  function handleRunEvaluationOrReset() {
+    if (hasEvaluationResults) {
+      if (isResettingMaterials) return;
+      setIsResettingMaterials(true);
+      window.setTimeout(() => {
+        resetAssignmentEvaluationMaterials(activeAssignmentId);
+        setIsResettingMaterials(false);
+      }, 50);
+      return;
     }
+
+    runAssignmentEvaluations(activeAssignmentId);
   }
 
   return (
@@ -2641,21 +2693,17 @@ function Submissions({
           <button
             className="primary-button"
             type="button"
-            disabled={(!canRunStep3 && !hasEvaluationResults) || selectedAssignmentEvaluating}
-            onClick={() =>
-              hasEvaluationResults
-                ? resetAssignmentEvaluationMaterials(activeAssignmentId)
-                : runAssignmentEvaluations(activeAssignmentId)
-            }
+            disabled={(!canRunStep3 && !hasEvaluationResults) || selectedAssignmentEvaluating || isResettingMaterials}
+            onClick={handleRunEvaluationOrReset}
           >
-            {selectedAssignmentEvaluating ? (
+            {selectedAssignmentEvaluating || isResettingMaterials ? (
               <span className="button-spinner" />
             ) : hasEvaluationResults ? (
               <RefreshCw size={16} />
             ) : (
               <Square size={16} />
             )}
-            {selectedAssignmentEvaluating ? "처리 중" : hasEvaluationResults ? "재평가" : "Step 3 : Evaluation"}
+            {selectedAssignmentEvaluating || isResettingMaterials ? "처리 중" : hasEvaluationResults ? "재평가" : "Step 3 : Evaluation"}
           </button>
         <button
           className="secondary-button"
@@ -3678,10 +3726,11 @@ function Analysis({
               ? pair.paragraphScore
               : pair.structureScore
       );
-    return scores.length ? Math.round(scores.reduce((total, score) => total + score, 0) / scores.length) : pair.score;
+    return scores.length ? Math.round(scores.reduce((total, score) => total + score, 0) / scores.length) : undefined;
   };
-  const visiblePairs = [...(analysis?.pairs ?? [])].sort((left, right) => pairModeScore(right) - pairModeScore(left));
+  const visiblePairs = [...(analysis?.pairs ?? [])].sort((left, right) => (pairModeScore(right) ?? 0) - (pairModeScore(left) ?? 0));
   const selectedPair = visiblePairs.find((pair) => pair.id === selectedPairId) ?? visiblePairs[0];
+  const selectedPairDisplayScore = selectedPair ? pairModeScore(selectedPair) : 0;
   const selectedLeft = submissions.find((submission) => submission.id === selectedPair?.submissionAId);
   const selectedRight = submissions.find((submission) => submission.id === selectedPair?.submissionBId);
   const analysisModes = selectedModes.filter((mode) => analysis?.modes.includes(mode));
@@ -3710,10 +3759,6 @@ function Analysis({
             <h2>유사도 분석</h2>
             <p className="muted">같은 과제의 제출물을 서로 비교합니다.</p>
           </div>
-          <button className="secondary-button" disabled={selectedModes.length === 0}>
-            <SearchCheck size={16} />
-            필터링
-          </button>
         </div>
         <div className="form-grid compact-form">
           <label className="field">
@@ -3778,9 +3823,9 @@ function Analysis({
                   <strong>
                     {left?.studentName ?? "-"} / {right?.studentName ?? "-"}
                   </strong>
-                  <span>{similarityRiskLabel(displayScore)}</span>
+                  <span>{displayScore === undefined ? "기준 선택 필요" : similarityRiskLabel(displayScore)}</span>
                 </div>
-                <b>{displayScore}%</b>
+                <b>{displayScore === undefined ? "-" : `${displayScore}%`}</b>
               </button>
             );
           })}
@@ -3797,12 +3842,14 @@ function Analysis({
                   {selectedLeft?.studentName ?? "-"} 와 {selectedRight?.studentName ?? "-"}
                 </p>
               </div>
-              <span className="tag pending-tag">{similarityRiskLabel(selectedPair.score)}</span>
+              <span className="tag pending-tag">
+                {selectedPairDisplayScore === undefined ? "기준 선택 필요" : similarityRiskLabel(selectedPairDisplayScore)}
+              </span>
             </div>
             <div className="similarity-score-grid">
               <div>
                 <span>종합</span>
-                <strong>{selectedPair.score}%</strong>
+                <strong>{selectedPairDisplayScore === undefined ? "-" : `${selectedPairDisplayScore}%`}</strong>
               </div>
               <div>
                 <span>문장 일치</span>
@@ -3883,6 +3930,9 @@ function Reports({
   const selectedEvaluation =
     reportEvaluations.find((evaluation) => evaluation.id === selectedEvaluationId) ?? reportEvaluations[0];
   const selectedSubmission = submissions.find((submission) => submission.id === selectedEvaluation?.submissionId);
+  const selectedStudentReportText = selectedEvaluation
+    ? safeStudentReportText(selectedEvaluation.studentReport, selectedSubmission?.reportText)
+    : "";
   const selectedAssignment = assignments.find((assignment) => assignment.id === selectedSubmission?.assignmentId);
   const selectedSimilaritySummary = similarityAnalyses
     .find((analysis) => analysis.assignmentId === selectedAssignment?.id)
@@ -3978,7 +4028,7 @@ function Reports({
             </section>
             <section className="report-detail-section">
               <h3>학생용 보고서</h3>
-              <div className="report-text-box student-report-box">{selectedEvaluation.studentReport}</div>
+              <div className="report-text-box student-report-box">{selectedStudentReportText}</div>
             </section>
           </>
         ) : (
@@ -4287,6 +4337,7 @@ function UserManualGuide() {
           <ul className="safe-bullets">
             <li>같은 과제의 제출물은 반드시 같은 과제로 등록해야 이후 비교분석이 정확합니다.</li>
             <li>처음에는 Step 1만 활성화되고, 각 단계가 끝나면 다음 단계만 활성화됩니다.</li>
+            <li>각 Step 버튼은 처리 중 로딩 표시를 보여주며, 처리 중에는 다음 작업을 막습니다.</li>
             <li>Step 1과 Step 2를 먼저 실행하면 AINS 동점 처리 기준이 준비됩니다.</li>
             <li>개별 평가 버튼은 사용하지 않고 과제 단위 일괄 평가만 사용합니다.</li>
             <li>평가가 끝나면 Step 3 버튼은 `재평가`로 바뀌며, 재평가를 누르면 AI Generated Score, Similarity, AI 평가 결과가 삭제되고 Step 1부터 다시 시작합니다.</li>
@@ -4311,6 +4362,7 @@ function UserManualGuide() {
           <ul className="safe-bullets">
             <li>AI 평가점수는 AI가 직접 부여한 원점수입니다.</li>
             <li>AI Normalized Score는 점수 쏠림을 완화하기 위한 과제 단위 보정 점수입니다.</li>
+            <li>Dashboard의 점수분포 경고는 5점 단위 점수구간이 5개 이하일 때 표시되고, 6개 이상에 분포하면 표시하지 않습니다.</li>
             <li>Rubrix Tuning 단계에서는 AI 평가점수를 다시 사용하지 않고 AI Normalized Score만 점수 기준으로 사용합니다.</li>
             <li>Evaluations의 최종조정점수 기본값은 AI Normalized Score로 시작합니다.</li>
             <li>평가자는 최종조정점수, 피드백, 학생용 보고서를 직접 수정할 수 있습니다.</li>
@@ -4340,7 +4392,7 @@ function UserManualGuide() {
             <li>Exact Match는 거의 같은 문장 또는 긴 문장 일치를 봅니다.</li>
             <li>Sentence, Paragraph, Structure Similarity는 표현·문단·구조의 유사성을 봅니다.</li>
             <li>Analysis에서는 새 분석을 실행하지 않고 4개 기준을 선택해 결과를 필터링합니다.</li>
-            <li>선택한 기준에 따라 목록 점수와 본문 하이라이트가 바뀝니다.</li>
+            <li>체크박스를 바꾸면 목록 점수, 상세 종합점수, 본문 하이라이트가 즉시 다시 계산됩니다.</li>
           </ul>
         </article>
       </div>
@@ -4367,7 +4419,7 @@ function UserManualGuide() {
           <div className="manual-note-grid">
             <div>
               <strong>Reports</strong>
-              <span>최종확정된 평가 결과만 과제별로 확인합니다. 학생에게 전달할 피드백과 보고서를 여기서 점검합니다.</span>
+              <span>최종확정된 평가 결과만 과제별로 확인합니다. 학생용 보고서가 제출 원문과 지나치게 유사하면 점검 안내를 표시합니다.</span>
             </div>
             <div>
               <strong>데이터 저장</strong>
@@ -4410,7 +4462,7 @@ function UserManualGuide() {
           </div>
           <div>
             <strong>운영 로그</strong>
-            <span>일괄 평가, 점수 수정, 최종확정, 확정 해제, 삭제, 복원 같은 주요 작업이 로그로 남습니다.</span>
+            <span>일괄 평가, 점수 수정, 최종확정, 확정 해제, 삭제, 복원 같은 주요 작업 중 최근 5개만 로그로 남습니다.</span>
           </div>
           <div>
             <strong>버전 기록</strong>
@@ -4694,7 +4746,7 @@ function SettingsPanel({
         <h2>운영 로그</h2>
         <div className="audit-log-list">
           {auditLogs.length === 0 ? <p className="muted">아직 기록된 운영 로그가 없습니다.</p> : null}
-          {auditLogs.slice(0, 20).map((log) => (
+          {auditLogs.slice(0, 5).map((log) => (
             <div className="audit-log-row" key={log.id}>
               <strong>{log.action}</strong>
               <span>{new Date(log.createdAt).toLocaleString("ko-KR")} · {log.message}</span>
