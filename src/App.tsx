@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   FileText,
   LayoutDashboard,
+  Network,
   Plus,
   SearchCheck,
   Settings,
@@ -224,10 +225,16 @@ const evaluationPromptVersion = "strict-evaluation-v2";
 const rubricPromptVersion = "rubric-prompt-v1";
 const safeModelVersion = "safe-v1.0";
 
+type AinsTieBreaker = {
+  similarityScore?: number;
+  aiGeneratedScore?: number;
+};
+
 function normalizeAiEvaluationScores<T extends { id: string; aiEvaluationScore?: number; totalScore: number }>(
-  evaluations: T[]
+  evaluations: T[],
+  tieBreakers = new Map<string, AinsTieBreaker>()
 ) {
-  const normalizedScoreMap = calculateAiNormalizedScoreMap(evaluations);
+  const normalizedScoreMap = calculateAiNormalizedScoreMap(evaluations, tieBreakers);
   return evaluations.map((evaluation) => {
     const aiNormalizedScore =
       normalizedScoreMap.get(evaluation.id) ?? evaluation.aiEvaluationScore ?? evaluation.totalScore;
@@ -240,7 +247,8 @@ function normalizeAiEvaluationScores<T extends { id: string; aiEvaluationScore?:
 }
 
 function calculateAiNormalizedScoreMap<T extends { id: string; aiEvaluationScore?: number; totalScore: number }>(
-  evaluations: T[]
+  evaluations: T[],
+  tieBreakers = new Map<string, AinsTieBreaker>()
 ) {
   const normalizedScores = new Map<string, number>();
   if (evaluations.length < 2) {
@@ -266,19 +274,22 @@ function calculateAiNormalizedScoreMap<T extends { id: string; aiEvaluationScore
   const targetMin = Math.max(0, average - 15);
   const targetMax = Math.min(100, average + 15);
   const targetRange = targetMax - targetMin;
-  const rankedIds = [...evaluations]
-    .sort((left, right) => {
+  const rankedIds = evaluations
+    .map((evaluation, index) => ({ evaluation, index }))
+    .sort((leftItem, rightItem) => {
+      const left = leftItem.evaluation;
+      const right = rightItem.evaluation;
       const scoreDiff = (left.aiEvaluationScore ?? left.totalScore) - (right.aiEvaluationScore ?? right.totalScore);
-      return scoreDiff || left.id.localeCompare(right.id);
+      const leftTieBreaker = tieBreakers.get(left.id);
+      const rightTieBreaker = tieBreakers.get(right.id);
+      const similarityDiff = (rightTieBreaker?.similarityScore ?? -1) - (leftTieBreaker?.similarityScore ?? -1);
+      const aiGeneratedDiff = (rightTieBreaker?.aiGeneratedScore ?? -1) - (leftTieBreaker?.aiGeneratedScore ?? -1);
+      return scoreDiff || similarityDiff || aiGeneratedDiff || leftItem.index - rightItem.index;
     })
-    .map((evaluation) => evaluation.id);
+    .map((item) => item.evaluation.id);
 
   evaluations.forEach((evaluation) => {
-    const rawScore = evaluation.aiEvaluationScore ?? evaluation.totalScore;
-    const normalized =
-      range > 0
-        ? targetMin + ((rawScore - minScore) / range) * targetRange
-        : targetMin + (rankedIds.indexOf(evaluation.id) / Math.max(1, evaluations.length - 1)) * targetRange;
+    const normalized = targetMin + (rankedIds.indexOf(evaluation.id) / Math.max(1, evaluations.length - 1)) * targetRange;
     const aiNormalizedScore = Math.max(0, Math.min(100, Math.round(normalized)));
     normalizedScores.set(evaluation.id, aiNormalizedScore);
   });
@@ -980,6 +991,30 @@ export function App() {
     setAuditLogs((current) => [log, ...current].slice(0, 200));
   }
 
+  function createAinsTieBreakers(assignmentId: string, targetEvaluations: Evaluation[]) {
+    const latestSimilarityAnalysis = similarityAnalyses.find((analysis) => analysis.assignmentId === assignmentId);
+    const latestAiGeneratedResult = aiGeneratedResults.find((result) => result.assignmentId === assignmentId);
+
+    return new Map(
+      targetEvaluations.map((evaluation) => {
+        const similarityScore = latestSimilarityAnalysis?.submissionSummaries?.find(
+          (summary) => summary.submissionId === evaluation.submissionId
+        )?.score;
+        const aiGeneratedScore = latestAiGeneratedResult?.scores.find(
+          (score) => score.submissionId === evaluation.submissionId
+        )?.averageScore;
+
+        return [
+          evaluation.id,
+          {
+            similarityScore,
+            aiGeneratedScore,
+          },
+        ];
+      })
+    );
+  }
+
   function updateRubric(nextRubric: RubricSet) {
     setRubrics((current) => current.map((rubric) => (rubric.id === nextRubric.id ? nextRubric : rubric)));
   }
@@ -1282,7 +1317,10 @@ export function App() {
       });
     }
 
-    const normalizedEvaluations = normalizeAiEvaluationScores(nextEvaluations);
+    const normalizedEvaluations = normalizeAiEvaluationScores(
+      nextEvaluations,
+      createAinsTieBreakers(assignmentId, nextEvaluations)
+    );
     setEvaluations((current) => [
       ...normalizedEvaluations,
       ...current.filter((evaluation) => !submissionIds.has(evaluation.submissionId)),
@@ -1405,7 +1443,10 @@ export function App() {
       return submission?.assignmentId === assignmentId;
     });
     const assignmentPendingEvaluations = assignmentEvaluations.filter((evaluation) => evaluation.status !== "finalized");
-    const aiNormalizedScoreMap = calculateAiNormalizedScoreMap(assignmentEvaluations);
+    const aiNormalizedScoreMap = calculateAiNormalizedScoreMap(
+      assignmentEvaluations,
+      createAinsTieBreakers(assignmentId, assignmentEvaluations)
+    );
     const assignmentEvaluationSignals = assignmentPendingEvaluations
       .map((evaluation) => {
         const submission = submissions.find((item) => item.id === evaluation.submissionId);
@@ -1533,6 +1574,8 @@ export function App() {
             evaluations={evaluations}
             evaluatingSubmissionIds={evaluatingSubmissionIds}
             addSubmission={addSubmission}
+            runAiGeneratedDiagnosis={runAiGeneratedDiagnosis}
+            runSimilarityAnalysis={runSimilarityAnalysis}
             runAssignmentEvaluations={runAssignmentEvaluations}
             deleteSubmission={deleteSubmission}
           />
@@ -2450,6 +2493,8 @@ function Submissions({
   evaluations,
   evaluatingSubmissionIds,
   addSubmission,
+  runAiGeneratedDiagnosis,
+  runSimilarityAnalysis,
   runAssignmentEvaluations,
   deleteSubmission,
 }: {
@@ -2461,6 +2506,8 @@ function Submissions({
     inputType: "pdf" | "text",
     values: { assignmentId: string; studentName: string; studentIdentifier: string; fileName?: string; reportText: string }
   ) => void;
+  runAiGeneratedDiagnosis: (assignmentId: string) => void;
+  runSimilarityAnalysis: (assignmentId: string, modes: SimilarityMode[]) => void;
   runAssignmentEvaluations: (assignmentId: string) => Promise<void>;
   deleteSubmission: (submissionId: string) => void;
 }) {
@@ -2472,6 +2519,8 @@ function Submissions({
   const [reportText, setReportText] = useState("");
   const [selectedSubmissionId, setSelectedSubmissionId] = useState("");
   const [submissionSortDirection, setSubmissionSortDirection] = useState<"asc" | "desc">("asc");
+  const [isRunningAiGenerated, setIsRunningAiGenerated] = useState(false);
+  const [isRunningSimilarity, setIsRunningSimilarity] = useState(false);
   const filteredSubmissions = submissions.filter(
     (submission) => submission.assignmentId === (selectedAssignmentId || assignments[0]?.id)
   );
@@ -2493,6 +2542,7 @@ function Submissions({
   const selectedAssignmentEvaluating = filteredSubmissions.some((submission) =>
     evaluatingSubmissionIds.includes(submission.id)
   );
+  const activeAssignmentId = selectedAssignmentId || assignments[0]?.id || "";
 
   function submitReport() {
     const trimmedText = reportText.trim();
@@ -2510,6 +2560,26 @@ function Submissions({
     setReportText("");
   }
 
+  function handleRunAiGeneratedDiagnosis() {
+    if (!activeAssignmentId || isRunningAiGenerated || filteredSubmissions.length === 0) return;
+    setIsRunningAiGenerated(true);
+    try {
+      runAiGeneratedDiagnosis(activeAssignmentId);
+    } finally {
+      setIsRunningAiGenerated(false);
+    }
+  }
+
+  function handleRunSimilarityAnalysis() {
+    if (!activeAssignmentId || isRunningSimilarity || filteredSubmissions.length === 0) return;
+    setIsRunningSimilarity(true);
+    try {
+      runSimilarityAnalysis(activeAssignmentId, ["exact", "sentence", "paragraph", "structure"]);
+    } finally {
+      setIsRunningSimilarity(false);
+    }
+  }
+
   return (
     <article className="panel">
       <div className="panel-title">
@@ -2519,13 +2589,31 @@ function Submissions({
         </div>
         <div className="button-group">
           <button
+            className="secondary-button"
+            type="button"
+            disabled={filteredSubmissions.length === 0 || isRunningAiGenerated || selectedAssignmentEvaluating}
+            onClick={handleRunAiGeneratedDiagnosis}
+          >
+            {isRunningAiGenerated ? <span className="button-spinner" /> : <BrainCircuit size={16} />}
+            {isRunningAiGenerated ? "처리 중" : "AI Generated Score"}
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={filteredSubmissions.length === 0 || isRunningSimilarity || selectedAssignmentEvaluating}
+            onClick={handleRunSimilarityAnalysis}
+          >
+            {isRunningSimilarity ? <span className="button-spinner" /> : <Network size={16} />}
+            {isRunningSimilarity ? "처리 중" : "Similarity"}
+          </button>
+          <button
             className="primary-button"
             type="button"
             disabled={filteredSubmissions.length === 0 || selectedAssignmentEvaluating}
-            onClick={() => runAssignmentEvaluations(selectedAssignmentId || assignments[0]?.id || "")}
+            onClick={() => runAssignmentEvaluations(activeAssignmentId)}
           >
             {selectedAssignmentEvaluating ? <span className="button-spinner" /> : <Square size={16} />}
-            {selectedAssignmentEvaluating ? "일괄 평가 중" : "일괄 AI 평가"}
+            {selectedAssignmentEvaluating ? "AI 평가 중" : "AI 평가"}
           </button>
         <button
           className="secondary-button"
@@ -4045,7 +4133,11 @@ function SafeFullFormulaPanel() {
           <h3>9. AI Normalized Score</h3>
           <code>if range(AIES) &lt; 30: target_min = mean(AIES) - 15</code>
           <code>target_max = mean(AIES) + 15</code>
-          <code>AINS_i = target_min + ((AIES_i - min(AIES)) / range(AIES)) * 30</code>
+          <code>AINS_i = target_min + (rank_i / (n - 1)) * 30</code>
+          <code>rank_i is calculated by sorting AIES within the selected assignment.</code>
+          <code>If AIES values are tied, rank is resolved by higher Similarity Score first, then higher AI Generated Score.</code>
+          <code>Higher tie-breaker risk is placed lower within the AINS range.</code>
+          <code>Recommended workflow: run AI Generated Score, then Similarity, then AI Evaluation in Submissions.</code>
           <code>if range(AIES) &gt;= 30: AINS_i = AIES_i</code>
           <code>RTS calculation starts from AINS_i, not from AIES_i.</code>
           <code>Final adjustment score shown to the evaluator can be edited manually.</code>
@@ -4076,6 +4168,10 @@ function UserManualGuide() {
 
       <article className="panel">
         <h2>빠른 시작</h2>
+        <p className="muted">
+          Submissions 화면에서는 제출물을 모두 등록한 뒤 `AI Generated Score`, `Similarity`, `AI 평가` 순서로 실행하는 것을 권장합니다.
+          이 순서로 실행하면 AINS 동점 처리에 필요한 AI Generated Score와 유사성 종합점수가 먼저 준비됩니다.
+        </p>
         <div className="manual-steps">
           {[
             ["1", "Rubric Sets", "평가세트와 카테고리별 배점을 확인하고 필요하면 배점 수정으로 조정합니다."],
@@ -4144,10 +4240,11 @@ function UserManualGuide() {
           <h2>4. 제출물 등록과 AI 평가</h2>
           <p className="muted">
             `Submissions`에서 과제를 선택하고 학생별 제출물을 모두 등록합니다. PDF 업로드 또는 텍스트 붙여넣기를
-            사용할 수 있으며, 등록이 끝난 뒤 `일괄 AI 평가`로 선택한 과제 전체를 한 번에 평가합니다.
+            사용할 수 있으며, 등록이 끝난 뒤 `AI Generated Score`, `Similarity`, `AI 평가` 순서로 실행합니다.
           </p>
           <ul className="safe-bullets">
             <li>같은 과제의 제출물은 반드시 같은 과제로 등록해야 이후 비교분석이 정확합니다.</li>
+            <li>AI Generated Score와 Similarity를 먼저 실행하면 AINS 동점 처리 기준이 준비됩니다.</li>
             <li>개별 평가 버튼은 사용하지 않고 과제 단위 일괄 평가만 사용합니다.</li>
             <li>이미 평가된 과제를 다시 일괄 평가하면 기존 결과를 새 결과로 덮어쓰며, 점수 이력은 저장하지 않습니다.</li>
             <li>평가 실행 중에는 로딩 표시가 나타나고, 완료 후에도 화면은 Submissions에 머뭅니다.</li>
@@ -4160,6 +4257,10 @@ function UserManualGuide() {
       <div className="manual-grid">
         <article className="panel">
           <h2>5. AI Normalized Score</h2>
+          <p className="muted">
+            AI 평가점수가 같으면 유사성 종합점수가 높은 제출물을 더 낮은 AINS 쪽에 배치하고,
+            유사성 종합점수도 같으면 AI Generated Score가 높은 제출물을 더 낮은 AINS 쪽에 배치합니다.
+          </p>
           <p className="muted">
             일괄 AI 평가 후 AI 원점수는 보존하고, 같은 과제 안에서 점수 분포가 30점보다 좁으면 평균을 중심으로
             30점 폭에 가깝게 재배치한 `AI Normalized Score`를 계산합니다.
