@@ -76,12 +76,15 @@ async function handleEvaluate(request, response) {
       return;
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 55000);
     const apiResponse = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${openaiApiKey}`,
         "Content-Type": "application/json",
       },
+      signal: controller.signal,
       body: JSON.stringify({
         model,
         input: prompt,
@@ -105,6 +108,7 @@ async function handleEvaluate(request, response) {
         },
       }),
     });
+    clearTimeout(timeoutId);
 
     const apiPayload = await apiResponse.json();
 

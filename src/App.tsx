@@ -1142,6 +1142,7 @@ export function App() {
 
     setEvaluatingSubmissionIds((current) => Array.from(new Set([...current, ...assignmentSubmissions.map((submission) => submission.id)])));
 
+    try {
     const assignment = assignments.find((item) => item.id === assignmentId);
     const rubric = rubrics.find((item) => item.id === assignment?.rubricSetId) ?? selectedRubric;
     const taskType = taskTypes.find((item) => item.id === assignment?.taskType) ?? taskTypes[0];
@@ -1200,7 +1201,7 @@ export function App() {
       });
 
       try {
-        const response = await fetch("/api/evaluate", {
+        const { response, payload } = await fetchJsonWithTimeout("/api/evaluate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1214,8 +1215,7 @@ export function App() {
   "student_report": "학생에게 전달할 평가보고서"
 }`,
           }),
-        });
-        const payload = await response.json();
+        }, 60000);
         if (!response.ok) throw new Error(payload.error || "AI 평가 요청에 실패했습니다.");
         evaluatedScore = Math.max(0, Math.min(100, Math.round(Number(payload.result.total_score) || fallbackScore)));
         evaluatedFeedback = payload.result.feedback || evaluatedFeedback;
@@ -1248,13 +1248,15 @@ export function App() {
       ...normalizedEvaluations,
       ...current.filter((evaluation) => !submissionIds.has(evaluation.submissionId)),
     ]);
-    setEvaluatingSubmissionIds((current) => current.filter((submissionId) => !submissionIds.has(submissionId)));
     addAuditLog(
       hasExistingEvaluations ? "rerun_assignment_evaluation" : "run_assignment_evaluation",
       "assignment",
       `과제 일괄 평가 완료: ${assignmentSubmissions.length}개 제출물`,
       assignmentId
     );
+    } finally {
+      setEvaluatingSubmissionIds((current) => current.filter((submissionId) => !submissionIds.has(submissionId)));
+    }
   }
 
   function finalizeEvaluation(evaluationId: string) {
