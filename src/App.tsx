@@ -98,6 +98,7 @@ type Evaluation = {
   safeModelVersion?: string;
   rubrixTuningScore?: number;
   rubrixTuningDelta?: number;
+  rubrixTuningBaseScore?: number;
   rubrixTuningNote?: string;
 };
 
@@ -1361,13 +1362,13 @@ export function App() {
   }
 
   function runRubrixTuning(assignmentId: string) {
-    const assignmentPendingEvaluations = evaluations.filter((evaluation) => {
-      if (evaluation.status === "finalized") return false;
+    const assignmentEvaluations = evaluations.filter((evaluation) => {
       const submission = submissions.find((item) => item.id === evaluation.submissionId);
       return submission?.assignmentId === assignmentId;
     });
+    const assignmentPendingEvaluations = assignmentEvaluations.filter((evaluation) => evaluation.status !== "finalized");
     const normalizedEvaluationMap = new Map(
-      normalizeAiEvaluationScores(assignmentPendingEvaluations).map((evaluation) => [evaluation.id, evaluation])
+      normalizeAiEvaluationScores(assignmentEvaluations).map((evaluation) => [evaluation.id, evaluation])
     );
     const assignmentEvaluationSignals = assignmentPendingEvaluations
       .map((evaluation) => {
@@ -1415,6 +1416,7 @@ export function App() {
               aiNormalizedScore: normalizedEvaluation?.aiNormalizedScore ?? evaluation.aiNormalizedScore,
               rubrixTuningScore: result.score,
               rubrixTuningDelta: result.delta,
+              rubrixTuningBaseScore: result.baseScore,
               rubrixTuningNote: result.note,
             }
           : evaluation;
@@ -3137,8 +3139,9 @@ function Evaluations({
               </strong>
               {selectedEvaluation.rubrixTuningDelta !== undefined ? (
                 <small>
-                  {selectedEvaluation.rubrixTuningDelta > 0 ? "+" : ""}
-                  {selectedEvaluation.rubrixTuningDelta}점 · {selectedEvaluation.rubrixTuningNote}
+                  기준 {selectedEvaluation.rubrixTuningBaseScore ?? selectedEvaluation.aiNormalizedScore ?? "-"}점
+                  {" "} {selectedEvaluation.rubrixTuningDelta > 0 ? "+" : ""}
+                  {selectedEvaluation.rubrixTuningDelta}점 = {selectedEvaluation.rubrixTuningScore}점 · {selectedEvaluation.rubrixTuningNote}
                 </small>
               ) : (
                 <small>상단의 Rubrix Tuning을 눌러 과제 단위로 계산하세요.</small>
@@ -3293,6 +3296,7 @@ type SafeTuningResult = {
   evaluationId: string;
   score: number;
   delta: number;
+  baseScore: number;
   note: string;
 };
 
@@ -3401,6 +3405,7 @@ function calculateSafeTuning(signals: SafeSignal[]) {
       evaluationId: row.evaluationId,
       score: Math.round(tunedScore * 10) / 10,
       delta: Math.round(cappedDelta * 10) / 10,
+      baseScore: Math.round(row.baseScore * 10) / 10,
       note: notes.join(" · "),
     };
   });
@@ -3789,7 +3794,7 @@ function Reports({
               <h3>Rubrix Tuning 설명</h3>
               <div className="safe-explanation-box">
                 <div><span>AI 원점수</span><strong>{selectedEvaluation.aiEvaluationScore ?? selectedEvaluation.totalScore}점</strong></div>
-                <div><span>AI Normalized Score</span><strong>{selectedEvaluation.aiNormalizedScore ?? "-"}점</strong></div>
+                <div><span>RTS 기준점(AINS)</span><strong>{selectedEvaluation.rubrixTuningBaseScore ?? selectedEvaluation.aiNormalizedScore ?? "-"}점</strong></div>
                 <div><span>Rubrix Tuning Score</span><strong>{selectedEvaluation.rubrixTuningScore === undefined ? "-" : `${selectedEvaluation.rubrixTuningScore}점`}</strong></div>
                 <div><span>보정폭</span><strong>{selectedEvaluation.rubrixTuningDelta === undefined ? "-" : `${selectedEvaluation.rubrixTuningDelta > 0 ? "+" : ""}${selectedEvaluation.rubrixTuningDelta}점`}</strong></div>
               </div>
