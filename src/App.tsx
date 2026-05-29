@@ -4010,10 +4010,10 @@ function UserManualGuide() {
             ["1", "Rubric Sets", "평가세트와 카테고리별 배점을 확인하고 필요하면 배점 수정으로 조정합니다."],
             ["2", "Assignments", "과제명, 과제유형, 설명, 사용할 평가세트를 등록합니다."],
             ["3", "AI Diagnosis", "과제별 AI Baseline을 만들고 모델별 기준 답안을 붙여 넣습니다."],
-            ["4", "Submissions", "과제를 선택한 뒤 학생 제출물을 텍스트 또는 PDF로 등록하고 AI 평가를 실행합니다."],
+            ["4", "Submissions", "학생 제출물을 모두 등록한 뒤 과제 단위로 일괄 AI 평가를 실행합니다."],
             ["5", "AI Generated Score", "학생 제출물과 AI Baseline의 유사도를 과제 단위로 일괄 계산합니다."],
             ["6", "Analysis", "같은 과제 제출물끼리 문장일치, 문장유사, 문단유사, 구조유사를 분석합니다."],
-            ["7", "Evaluations", "AI 점수, 유사도, Rubrix Tuning Score를 보고 최종조정점수와 보고서를 확정합니다."],
+            ["7", "Evaluations", "AI 점수, AI Normalized Score, 유사도, Rubrix Tuning Score를 보고 최종확정합니다."],
             ["8", "Reports", "최종확정된 피드백과 학생용 보고서를 과제별로 확인합니다."],
           ].map(([step, title, text]) => (
             <div className="manual-step" key={step}>
@@ -4072,12 +4072,14 @@ function UserManualGuide() {
         <article className="panel">
           <h2>4. 제출물 등록과 AI 평가</h2>
           <p className="muted">
-            `Submissions`에서 과제를 선택하고 학생별 제출물을 등록합니다. PDF 업로드 또는 텍스트 붙여넣기를
-            사용할 수 있으며, 평가 실행 후에도 화면은 Submissions에 머뭅니다.
+            `Submissions`에서 과제를 선택하고 학생별 제출물을 모두 등록합니다. PDF 업로드 또는 텍스트 붙여넣기를
+            사용할 수 있으며, 등록이 끝난 뒤 `일괄 AI 평가`로 선택한 과제 전체를 한 번에 평가합니다.
           </p>
           <ul className="safe-bullets">
             <li>같은 과제의 제출물은 반드시 같은 과제로 등록해야 이후 비교분석이 정확합니다.</li>
-            <li>평가 실행 중에는 로딩 표시가 나타납니다.</li>
+            <li>개별 평가 버튼은 사용하지 않고 과제 단위 일괄 평가만 사용합니다.</li>
+            <li>이미 평가된 과제를 다시 일괄 평가하면 기존 결과를 새 결과로 덮어쓰며, 점수 이력은 저장하지 않습니다.</li>
+            <li>평가 실행 중에는 로딩 표시가 나타나고, 완료 후에도 화면은 Submissions에 머뭅니다.</li>
             <li>제출물 목록은 오름차순 또는 내림차순으로 정렬할 수 있습니다.</li>
             <li>제출물을 삭제하면 연결된 평가 결과도 함께 삭제됩니다.</li>
           </ul>
@@ -4086,7 +4088,21 @@ function UserManualGuide() {
 
       <div className="manual-grid">
         <article className="panel">
-          <h2>5. AI Generated Score</h2>
+          <h2>5. AI Normalized Score</h2>
+          <p className="muted">
+            일괄 AI 평가 후 AI 원점수는 보존하고, 같은 과제 안에서 점수 분포가 30점보다 좁으면 평균을 중심으로
+            30점 폭에 가깝게 재배치한 `AI Normalized Score`를 계산합니다.
+          </p>
+          <ul className="safe-bullets">
+            <li>AI 평가점수는 AI가 직접 부여한 원점수입니다.</li>
+            <li>AI Normalized Score는 점수 쏠림을 완화하기 위한 과제 단위 보정 점수입니다.</li>
+            <li>Evaluations의 최종조정점수 기본값은 AI Normalized Score로 시작합니다.</li>
+            <li>평가자는 최종조정점수, 피드백, 학생용 보고서를 직접 수정할 수 있습니다.</li>
+          </ul>
+        </article>
+
+        <article className="panel">
+          <h2>6. AI Generated Score</h2>
           <p className="muted">
             `AI Generated Score`는 학생 제출물과 AI Baseline을 비교해 모델별 AI 생성 유사도 평균을 계산합니다.
             이 값은 Evaluations와 Rubrix Tuning 계산에서 참고 신호로 사용됩니다.
@@ -4099,7 +4115,7 @@ function UserManualGuide() {
         </article>
 
         <article className="panel">
-          <h2>6. 유사도 분석</h2>
+          <h2>7. 유사도 분석</h2>
           <p className="muted">
             `Analysis`는 같은 과제 제출물끼리 비교합니다. 결과는 각 리포트가 다른 리포트들과 얼마나 유사한지
             상위 10% 평균을 기준으로 요약되어 SAFE Model에 사용됩니다.
@@ -4114,20 +4130,21 @@ function UserManualGuide() {
 
       <div className="manual-grid">
         <article className="panel">
-          <h2>7. Evaluations에서 확정</h2>
+          <h2>8. Evaluations에서 확정</h2>
           <p className="muted">
             `Evaluations`에서는 최종확정 전 평가만 검토합니다. AI 평가점수, AI Generated Score, Analysis,
-            Rubrix Tuning Score를 함께 보고 최종조정점수와 피드백, 학생용 보고서를 수정합니다.
+            AI Normalized Score, Rubrix Tuning Score를 함께 보고 최종조정점수와 피드백, 학생용 보고서를 수정합니다.
           </p>
           <ul className="safe-bullets">
             <li>`Rubrix Tuning` 버튼은 선택한 과제의 미확정 평가를 일괄 계산합니다.</li>
-            <li>Rubrix Tuning Score는 참고값이며 최종조정점수는 평가자가 직접 확정합니다.</li>
+            <li>최종조정점수는 AI Normalized Score를 기본값으로 시작하며 평가자가 직접 확정합니다.</li>
+            <li>Rubrix Tuning Score는 참고값이며 최종점수를 자동 확정하지 않습니다.</li>
             <li>`평가완료`를 누르면 결과가 Reports로 이동합니다.</li>
           </ul>
         </article>
 
         <article className="panel">
-          <h2>8. Reports와 운영 주의사항</h2>
+          <h2>9. Reports와 운영 주의사항</h2>
           <div className="manual-note-grid">
             <div>
               <strong>Reports</strong>
@@ -4153,8 +4170,8 @@ function UserManualGuide() {
         <h2>운영 안정성 기능</h2>
         <div className="manual-note-grid">
           <div>
-            <strong>자동 백업 이력</strong>
-            <span>평가 실행 전후, 재평가 전, Rubrix Tuning 실행 전, 삭제 전에는 최근 5개 자동 백업이 저장됩니다.</span>
+            <strong>수동 백업 운영</strong>
+            <span>자동 백업 이력은 저장하지 않습니다. 중요한 작업 전후에는 Settings에서 직접 백업을 다운로드합니다.</span>
           </div>
           <div>
             <strong>수동 백업</strong>
@@ -4165,8 +4182,8 @@ function UserManualGuide() {
             <span>과제와 제출물 삭제 시 연결 데이터 개수를 보여주고, `삭제`라고 직접 입력해야 삭제됩니다.</span>
           </div>
           <div>
-            <strong>재평가 관리</strong>
-            <span>기존 평가가 있는 제출물은 `재평가`로 다시 실행할 수 있고, 기존 결과는 평가 이력으로 보관됩니다.</span>
+            <strong>일괄 재평가</strong>
+            <span>기존 평가가 있는 과제는 `일괄 AI 평가`로 다시 실행할 수 있고, 기존 결과는 새 결과로 덮어씁니다.</span>
           </div>
           <div>
             <strong>Data Check</strong>
@@ -4174,7 +4191,7 @@ function UserManualGuide() {
           </div>
           <div>
             <strong>운영 로그</strong>
-            <span>평가 실행, 재평가, 점수 수정, 최종확정, 확정 해제, 삭제, 복원 같은 주요 작업이 로그로 남습니다.</span>
+            <span>일괄 평가, 점수 수정, 최종확정, 확정 해제, 삭제, 복원 같은 주요 작업이 로그로 남습니다.</span>
           </div>
           <div>
             <strong>버전 기록</strong>
