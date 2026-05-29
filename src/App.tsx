@@ -226,12 +226,27 @@ const safeModelVersion = "safe-v1.0";
 function normalizeAiEvaluationScores<T extends { id: string; aiEvaluationScore?: number; totalScore: number }>(
   evaluations: T[]
 ) {
-  if (evaluations.length < 2) {
-    return evaluations.map((evaluation) => ({
+  const normalizedScoreMap = calculateAiNormalizedScoreMap(evaluations);
+  return evaluations.map((evaluation) => {
+    const aiNormalizedScore =
+      normalizedScoreMap.get(evaluation.id) ?? evaluation.aiEvaluationScore ?? evaluation.totalScore;
+    return {
       ...evaluation,
-      aiNormalizedScore: evaluation.aiEvaluationScore ?? evaluation.totalScore,
-      totalScore: evaluation.aiEvaluationScore ?? evaluation.totalScore,
-    }));
+      aiNormalizedScore,
+      totalScore: aiNormalizedScore,
+    };
+  });
+}
+
+function calculateAiNormalizedScoreMap<T extends { id: string; aiEvaluationScore?: number; totalScore: number }>(
+  evaluations: T[]
+) {
+  const normalizedScores = new Map<string, number>();
+  if (evaluations.length < 2) {
+    evaluations.forEach((evaluation) =>
+      normalizedScores.set(evaluation.id, evaluation.aiEvaluationScore ?? evaluation.totalScore)
+    );
+    return normalizedScores;
   }
 
   const rawScores = evaluations.map((evaluation) => evaluation.aiEvaluationScore ?? evaluation.totalScore);
@@ -241,11 +256,10 @@ function normalizeAiEvaluationScores<T extends { id: string; aiEvaluationScore?:
   const range = maxScore - minScore;
 
   if (range >= 30) {
-    return evaluations.map((evaluation) => ({
-      ...evaluation,
-      aiNormalizedScore: evaluation.aiEvaluationScore ?? evaluation.totalScore,
-      totalScore: evaluation.aiEvaluationScore ?? evaluation.totalScore,
-    }));
+    evaluations.forEach((evaluation) =>
+      normalizedScores.set(evaluation.id, evaluation.aiEvaluationScore ?? evaluation.totalScore)
+    );
+    return normalizedScores;
   }
 
   const targetMin = Math.max(0, average - 15);
@@ -258,19 +272,16 @@ function normalizeAiEvaluationScores<T extends { id: string; aiEvaluationScore?:
     })
     .map((evaluation) => evaluation.id);
 
-  return evaluations.map((evaluation) => {
+  evaluations.forEach((evaluation) => {
     const rawScore = evaluation.aiEvaluationScore ?? evaluation.totalScore;
     const normalized =
       range > 0
         ? targetMin + ((rawScore - minScore) / range) * targetRange
         : targetMin + (rankedIds.indexOf(evaluation.id) / Math.max(1, evaluations.length - 1)) * targetRange;
     const aiNormalizedScore = Math.max(0, Math.min(100, Math.round(normalized)));
-    return {
-      ...evaluation,
-      aiNormalizedScore,
-      totalScore: aiNormalizedScore,
-    };
+    normalizedScores.set(evaluation.id, aiNormalizedScore);
   });
+  return normalizedScores;
 }
 
 const initialTaskTypes: TaskType[] = [
@@ -1367,14 +1378,13 @@ export function App() {
       return submission?.assignmentId === assignmentId;
     });
     const assignmentPendingEvaluations = assignmentEvaluations.filter((evaluation) => evaluation.status !== "finalized");
-    const normalizedEvaluationMap = new Map(
-      normalizeAiEvaluationScores(assignmentEvaluations).map((evaluation) => [evaluation.id, evaluation])
-    );
+    const aiNormalizedScoreMap = calculateAiNormalizedScoreMap(assignmentEvaluations);
     const assignmentEvaluationSignals = assignmentPendingEvaluations
       .map((evaluation) => {
         const submission = submissions.find((item) => item.id === evaluation.submissionId);
         if (!submission) return null;
-        const normalizedEvaluation = normalizedEvaluationMap.get(evaluation.id) ?? evaluation;
+        const aiNormalizedScore = aiNormalizedScoreMap.get(evaluation.id);
+        if (aiNormalizedScore === undefined) return null;
         const similaritySummary = similarityAnalyses
           .find((analysis) => analysis.assignmentId === assignmentId)
           ?.submissionSummaries?.find((summary) => summary.submissionId === submission.id);
@@ -1384,11 +1394,7 @@ export function App() {
 
         const signal: SafeSignal = {
           evaluationId: evaluation.id,
-          baseScore:
-            normalizedEvaluation.aiNormalizedScore ??
-            normalizedEvaluation.aiEvaluationScore ??
-            normalizedEvaluation.totalScore,
-          aiEvaluationScore: evaluation.aiEvaluationScore ?? evaluation.totalScore,
+          aiNormalizedScore,
           exact: similaritySummary?.exactScore,
           sentence: similaritySummary?.sentenceScore,
           paragraph: similaritySummary?.paragraphScore,
@@ -1409,14 +1415,14 @@ export function App() {
     setEvaluations((current) =>
       current.map((evaluation) => {
         const result = tuningMap.get(evaluation.id);
-        const normalizedEvaluation = normalizedEvaluationMap.get(evaluation.id);
+        const aiNormalizedScore = aiNormalizedScoreMap.get(evaluation.id);
         return result
           ? {
               ...evaluation,
-              aiNormalizedScore: normalizedEvaluation?.aiNormalizedScore ?? evaluation.aiNormalizedScore,
+              aiNormalizedScore: aiNormalizedScore ?? evaluation.aiNormalizedScore,
               rubrixTuningScore: result.score,
               rubrixTuningDelta: result.delta,
-              rubrixTuningBaseScore: result.baseScore,
+              rubrixTuningBaseScore: result.aiNormalizedScore,
               rubrixTuningNote: result.note,
             }
           : evaluation;
@@ -3283,8 +3289,7 @@ const safeDefaults = {
 
 type SafeSignal = {
   evaluationId: string;
-  baseScore: number;
-  aiEvaluationScore: number;
+  aiNormalizedScore: number;
   exact?: number;
   sentence?: number;
   paragraph?: number;
@@ -3296,7 +3301,7 @@ type SafeTuningResult = {
   evaluationId: string;
   score: number;
   delta: number;
-  baseScore: number;
+  aiNormalizedScore: number;
   note: string;
 };
 
@@ -3337,7 +3342,7 @@ function zScores<T extends string>(
 }
 
 function calculateSafeTuning(signals: SafeSignal[]) {
-  const zBaseScore = zScores(signals.map((signal) => ({ id: signal.evaluationId, value: signal.baseScore })));
+  const zAins = zScores(signals.map((signal) => ({ id: signal.evaluationId, value: signal.aiNormalizedScore })));
   const zExact = zScores(
     signals.map((signal) => ({ id: signal.evaluationId, value: signal.exact })),
     logitScore
@@ -3375,27 +3380,28 @@ function calculateSafeTuning(signals: SafeSignal[]) {
     const zAiMax = modelZValues.length ? Math.max(...modelZValues) : 0;
     const zAi = (1 - safeDefaults.theta) * zAiMean + safeDefaults.theta * zAiMax;
     const zSim = safeDefaults.lambda * zText + (1 - safeDefaults.lambda) * zAi;
-    const zBaseValue = zBaseScore.get(signal.evaluationId) ?? 0;
+    const zAinsValue = zAins.get(signal.evaluationId) ?? 0;
 
     return {
       ...signal,
-      zBaseScore: zBaseValue,
+      zAins: zAinsValue,
       zSim,
-      zIntRaw: Math.max(zBaseValue, 0) * Math.max(zSim, 0),
+      zIntRaw: Math.max(zAinsValue, 0) * Math.max(zSim, 0),
     };
   });
   const zInt = zScores(baseRows.map((row) => ({ id: row.evaluationId, value: row.zIntRaw })));
 
   return baseRows.map<SafeTuningResult>((row) => {
-    const zS = row.zSim + safeDefaults.wA * row.zBaseScore + safeDefaults.wInt * (zInt.get(row.evaluationId) ?? 0);
+    const zS = row.zSim + safeDefaults.wA * row.zAins + safeDefaults.wInt * (zInt.get(row.evaluationId) ?? 0);
     const kernel = -Math.tanh(safeDefaults.k * zS);
     const rawScore =
-      row.baseScore +
+      row.aiNormalizedScore +
       safeDefaults.rho *
-        (Math.max(kernel, 0) * (safeDefaults.maxScore - row.baseScore) + Math.min(kernel, 0) * row.baseScore);
-    const rawDelta = rawScore - row.baseScore;
+        (Math.max(kernel, 0) * (safeDefaults.maxScore - row.aiNormalizedScore) +
+          Math.min(kernel, 0) * row.aiNormalizedScore);
+    const rawDelta = rawScore - row.aiNormalizedScore;
     const cappedDelta = Math.max(-safeDefaults.hardCap, Math.min(safeDefaults.hardCap, rawDelta));
-    const tunedScore = clampScore(row.baseScore + cappedDelta);
+    const tunedScore = clampScore(row.aiNormalizedScore + cappedDelta);
     const notes = [
       signals.length < 30 ? "소규모 코호트라 참고용으로 사용하세요." : "코호트 기준 보정값입니다.",
       Math.abs(rawDelta) > safeDefaults.hardCap ? `하드캡 ±${safeDefaults.hardCap}점 적용` : "",
@@ -3405,7 +3411,7 @@ function calculateSafeTuning(signals: SafeSignal[]) {
       evaluationId: row.evaluationId,
       score: Math.round(tunedScore * 10) / 10,
       delta: Math.round(cappedDelta * 10) / 10,
-      baseScore: Math.round(row.baseScore * 10) / 10,
+      aiNormalizedScore: Math.round(row.aiNormalizedScore * 10) / 10,
       note: notes.join(" · "),
     };
   });
