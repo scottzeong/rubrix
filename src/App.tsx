@@ -1375,7 +1375,8 @@ export function App() {
 
         const signal: SafeSignal = {
           evaluationId: evaluation.id,
-          aies: evaluation.aiEvaluationScore ?? evaluation.totalScore,
+          baseScore: evaluation.aiNormalizedScore ?? evaluation.aiEvaluationScore ?? evaluation.totalScore,
+          aiEvaluationScore: evaluation.aiEvaluationScore ?? evaluation.totalScore,
           exact: similaritySummary?.exactScore,
           sentence: similaritySummary?.sentenceScore,
           paragraph: similaritySummary?.paragraphScore,
@@ -3266,7 +3267,8 @@ const safeDefaults = {
 
 type SafeSignal = {
   evaluationId: string;
-  aies: number;
+  baseScore: number;
+  aiEvaluationScore: number;
   exact?: number;
   sentence?: number;
   paragraph?: number;
@@ -3318,7 +3320,7 @@ function zScores<T extends string>(
 }
 
 function calculateSafeTuning(signals: SafeSignal[]) {
-  const zAies = zScores(signals.map((signal) => ({ id: signal.evaluationId, value: signal.aies })));
+  const zBaseScore = zScores(signals.map((signal) => ({ id: signal.evaluationId, value: signal.baseScore })));
   const zExact = zScores(
     signals.map((signal) => ({ id: signal.evaluationId, value: signal.exact })),
     logitScore
@@ -3356,27 +3358,27 @@ function calculateSafeTuning(signals: SafeSignal[]) {
     const zAiMax = modelZValues.length ? Math.max(...modelZValues) : 0;
     const zAi = (1 - safeDefaults.theta) * zAiMean + safeDefaults.theta * zAiMax;
     const zSim = safeDefaults.lambda * zText + (1 - safeDefaults.lambda) * zAi;
-    const zAiesValue = zAies.get(signal.evaluationId) ?? 0;
+    const zBaseValue = zBaseScore.get(signal.evaluationId) ?? 0;
 
     return {
       ...signal,
-      zAies: zAiesValue,
+      zBaseScore: zBaseValue,
       zSim,
-      zIntRaw: Math.max(zAiesValue, 0) * Math.max(zSim, 0),
+      zIntRaw: Math.max(zBaseValue, 0) * Math.max(zSim, 0),
     };
   });
   const zInt = zScores(baseRows.map((row) => ({ id: row.evaluationId, value: row.zIntRaw })));
 
   return baseRows.map<SafeTuningResult>((row) => {
-    const zS = row.zSim + safeDefaults.wA * row.zAies + safeDefaults.wInt * (zInt.get(row.evaluationId) ?? 0);
+    const zS = row.zSim + safeDefaults.wA * row.zBaseScore + safeDefaults.wInt * (zInt.get(row.evaluationId) ?? 0);
     const kernel = -Math.tanh(safeDefaults.k * zS);
     const rawScore =
-      row.aies +
+      row.baseScore +
       safeDefaults.rho *
-        (Math.max(kernel, 0) * (safeDefaults.maxScore - row.aies) + Math.min(kernel, 0) * row.aies);
-    const rawDelta = rawScore - row.aies;
+        (Math.max(kernel, 0) * (safeDefaults.maxScore - row.baseScore) + Math.min(kernel, 0) * row.baseScore);
+    const rawDelta = rawScore - row.baseScore;
     const cappedDelta = Math.max(-safeDefaults.hardCap, Math.min(safeDefaults.hardCap, rawDelta));
-    const tunedScore = clampScore(row.aies + cappedDelta);
+    const tunedScore = clampScore(row.baseScore + cappedDelta);
     const notes = [
       signals.length < 30 ? "소규모 코호트라 참고용으로 사용하세요." : "코호트 기준 보정값입니다.",
       Math.abs(rawDelta) > safeDefaults.hardCap ? `하드캡 ±${safeDefaults.hardCap}점 적용` : "",
@@ -3774,6 +3776,7 @@ function Reports({
               <h3>Rubrix Tuning 설명</h3>
               <div className="safe-explanation-box">
                 <div><span>AI 원점수</span><strong>{selectedEvaluation.aiEvaluationScore ?? selectedEvaluation.totalScore}점</strong></div>
+                <div><span>AI Normalized Score</span><strong>{selectedEvaluation.aiNormalizedScore ?? "-"}점</strong></div>
                 <div><span>Rubrix Tuning Score</span><strong>{selectedEvaluation.rubrixTuningScore === undefined ? "-" : `${selectedEvaluation.rubrixTuningScore}점`}</strong></div>
                 <div><span>보정폭</span><strong>{selectedEvaluation.rubrixTuningDelta === undefined ? "-" : `${selectedEvaluation.rubrixTuningDelta > 0 ? "+" : ""}${selectedEvaluation.rubrixTuningDelta}점`}</strong></div>
               </div>
@@ -3837,7 +3840,7 @@ function SafeModelGuide() {
           <h2>입력 신호</h2>
           <div className="safe-signal-list">
             <div>
-              <strong>AIES</strong>
+              <strong>AINS</strong>
               <span>AI가 평가한 순수 평가점수</span>
             </div>
             <div>
@@ -3906,10 +3909,10 @@ function SafeModelGuide() {
         <h2>핵심 수식</h2>
         <div className="safe-formulas">
           <code>Z_sim = λ·Z_text + (1−λ)·Z_ai</code>
-          <code>Z_int = z(ReLU(z_AIES) · ReLU(Z_sim))</code>
-          <code>Z_S = Z_sim + w_A·z_AIES + w_int·Z_int</code>
+          <code>Z_int = z(ReLU(z_AINS) · ReLU(Z_sim))</code>
+          <code>Z_S = Z_sim + w_A·z_AINS + w_int·Z_int</code>
           <code>g = −tanh(k · Z_S)</code>
-          <code>RTS = AIES + ρ·[max(g,0)(M−AIES) + min(g,0)AIES]</code>
+          <code>RTS = AINS + ρ·[max(g,0)(M−AINS) + min(g,0)AINS]</code>
         </div>
       </article>
       <SafeFullFormulaPanel />
@@ -3929,6 +3932,7 @@ function SafeFullFormulaPanel() {
         <div>
           <h3>1. Input Signals</h3>
           <code>AIES_i = AI Evaluation Score of submission i</code>
+          <code>AINS_i = AI Normalized Score of submission i</code>
           <code>ST_i = sentence exact-match similarity</code>
           <code>SP_i = sentence semantic similarity</code>
           <code>PP_i = paragraph similarity</code>
@@ -3953,12 +3957,12 @@ function SafeFullFormulaPanel() {
         </div>
         <div>
           <h3>5. High-Quality Similarity Interaction</h3>
-          <code>Z_int_i = z(ReLU(Z_AIES_i) * ReLU(Z_sim_i))</code>
+          <code>Z_int_i = z(ReLU(Z_AINS_i) * ReLU(Z_sim_i))</code>
           <code>ReLU(x) = max(0, x)</code>
         </div>
         <div>
           <h3>6. SAFE Risk Signal</h3>
-          <code>Z_S_i = Z_sim_i + w_A * Z_AIES_i + w_int * Z_int_i</code>
+          <code>Z_S_i = Z_sim_i + w_A * Z_AINS_i + w_int * Z_int_i</code>
           <code>w_A = 0.15, w_int = 0.50</code>
         </div>
         <div>
@@ -3968,9 +3972,9 @@ function SafeFullFormulaPanel() {
         </div>
         <div>
           <h3>8. Rubrix Tuning Score</h3>
-          <code>RTS_raw_i = AIES_i + rho * [max(g_i, 0) * (100 - AIES_i) + min(g_i, 0) * AIES_i]</code>
+          <code>RTS_raw_i = AINS_i + rho * [max(g_i, 0) * (100 - AINS_i) + min(g_i, 0) * AINS_i]</code>
           <code>rho = 0.15</code>
-          <code>RTS_i = clamp(RTS_raw_i, AIES_i - 8, AIES_i + 8)</code>
+          <code>RTS_i = clamp(RTS_raw_i, AINS_i - 8, AINS_i + 8)</code>
           <code>RTS_i = clamp(RTS_i, 0, 100)</code>
         </div>
         <div>
@@ -4342,7 +4346,7 @@ function createSafeExplanation(
 
   return reasons.length
     ? reasons.join(" ")
-    : "SAFE Model은 AI 원점수, 제출물 간 유사도, AI Baseline 유사도를 코호트 기준으로 함께 검토해 참고 보정값을 산출했습니다.";
+    : "SAFE Model은 AI Normalized Score를 기준점으로 두고, 제출물 간 유사도와 AI Baseline 유사도를 코호트 기준으로 함께 검토해 참고 보정값을 산출했습니다.";
 }
 
 function SettingsPanel({
