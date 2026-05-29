@@ -1605,19 +1605,20 @@ function Dashboard({
   });
   const maxBinCount = Math.max(1, ...scoreBins.map((bin) => bin.count));
   const evaluatedScores = selectedAssignmentEvaluations.map((evaluation) => evaluation.totalScore);
-  const averageScore = evaluatedScores.length ? Math.round(mean(evaluatedScores) * 10) / 10 : 0;
-  const scoreDeviation = evaluatedScores.length ? Math.round(standardDeviation(evaluatedScores) * 10) / 10 : 0;
+  const averageScore = evaluatedScores.length ? mean(evaluatedScores) : 0;
+  const scoreDeviation = evaluatedScores.length ? standardDeviation(evaluatedScores) : 0;
   const scoreRange =
     evaluatedScores.length > 0 ? Math.max(...evaluatedScores) - Math.min(...evaluatedScores) : 0;
   const highScoreRate =
     evaluatedScores.length > 0
-      ? Math.round((evaluatedScores.filter((score) => score >= 90).length / evaluatedScores.length) * 100)
+      ? (evaluatedScores.filter((score) => score >= 90).length / evaluatedScores.length) * 100
       : 0;
   const lowScoreRate =
     evaluatedScores.length > 0
-      ? Math.round((evaluatedScores.filter((score) => score <= 60).length / evaluatedScores.length) * 100)
+      ? (evaluatedScores.filter((score) => score <= 60).length / evaluatedScores.length) * 100
       : 0;
   const narrowDistributionWarning = evaluatedScores.length >= 5 && scoreRange < 30;
+  const formatStatNumber = (value: number) => value.toFixed(2);
   const flowSteps = [
     {
       title: "Rubric Sets",
@@ -1699,11 +1700,11 @@ function Dashboard({
           ))}
         </div>
         <div className="score-monitor-grid">
-          <div><span>평균</span><strong>{evaluatedScores.length ? `${averageScore}점` : "-"}</strong></div>
-          <div><span>표준편차</span><strong>{evaluatedScores.length ? scoreDeviation : "-"}</strong></div>
-          <div><span>최고/최저 차이</span><strong>{evaluatedScores.length ? `${scoreRange}점` : "-"}</strong></div>
-          <div><span>90점 이상</span><strong>{evaluatedScores.length ? `${highScoreRate}%` : "-"}</strong></div>
-          <div><span>60점 이하</span><strong>{evaluatedScores.length ? `${lowScoreRate}%` : "-"}</strong></div>
+          <div><span>평균</span><strong>{evaluatedScores.length ? `${formatStatNumber(averageScore)}점` : "-"}</strong></div>
+          <div><span>표준편차</span><strong>{evaluatedScores.length ? formatStatNumber(scoreDeviation) : "-"}</strong></div>
+          <div><span>최고/최저 차이</span><strong>{evaluatedScores.length ? `${formatStatNumber(scoreRange)}점` : "-"}</strong></div>
+          <div><span>90점 이상</span><strong>{evaluatedScores.length ? `${formatStatNumber(highScoreRate)}%` : "-"}</strong></div>
+          <div><span>60점 이하</span><strong>{evaluatedScores.length ? `${formatStatNumber(lowScoreRate)}%` : "-"}</strong></div>
         </div>
         {narrowDistributionWarning ? (
           <p className="score-warning">점수 분포가 너무 좁습니다. 평가 기준 또는 프롬프트를 점검하세요.</p>
