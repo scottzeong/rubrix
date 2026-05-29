@@ -159,18 +159,13 @@ function supabaseEndpoint() {
   return `${baseUrl}/rest/v1/app_state`;
 }
 
-async function fetchWithTimeout(url, options = {}) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-  try {
-    return await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeoutId);
-  }
+function fetchWithTimeout(url, options = {}, timeoutMs = 3500) {
+  return Promise.race([
+    fetch(url, options),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Supabase 저장소 응답 시간이 초과되었습니다.")), timeoutMs)
+    ),
+  ]);
 }
 
 async function handleState(request, response) {
@@ -235,13 +230,8 @@ async function handleState(request, response) {
 
     sendJson(response, 405, { error: "Method not allowed." });
   } catch (error) {
-    sendJson(response, error instanceof Error && error.name === "AbortError" ? 504 : 500, {
-      error:
-        error instanceof Error && error.name === "AbortError"
-          ? "Supabase 저장소 응답 시간이 초과되었습니다."
-          : error instanceof Error
-            ? error.message
-            : "Unexpected state storage error.",
+    sendJson(response, error instanceof Error && error.message.includes("초과") ? 504 : 500, {
+      error: error instanceof Error ? error.message : "Unexpected state storage error.",
     });
   }
 }

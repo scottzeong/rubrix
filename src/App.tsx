@@ -702,6 +702,17 @@ async function fetchJsonWithTimeout(url: string, options?: RequestInit, timeoutM
   }
 }
 
+function readLocalAutoBackups(fallback: BackupSnapshot[] = []) {
+  try {
+    const raw = window.localStorage.getItem("rubrix-auto-backups");
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, 5) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function App() {
   const [activeMenu, setActiveMenu] = useState<MenuKey>("dashboard");
   const [rubrics, setRubrics] = useState<RubricSet[]>([seedRubric]);
@@ -753,6 +764,13 @@ export function App() {
       taskTypes,
     ]
   );
+  const serverAppState = useMemo<AppStateData>(
+    () => ({
+      ...currentAppState,
+      autoBackups: [],
+    }),
+    [currentAppState]
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -776,7 +794,7 @@ export function App() {
           setAiGeneratedResults(payload.data.aiGeneratedResults ?? []);
           setEvaluationHistories(payload.data.evaluationHistories ?? []);
           setAuditLogs(payload.data.auditLogs ?? []);
-          setAutoBackups(payload.data.autoBackups ?? []);
+          setAutoBackups(readLocalAutoBackups(payload.data.autoBackups ?? []));
           setSelectedRubricId(payload.data.selectedRubricId ?? seedRubric.id);
           setAiModel(payload.data.aiModel ?? "gpt-5.4-mini");
         }
@@ -813,7 +831,7 @@ export function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            data: currentAppState,
+            data: serverAppState,
           }),
         });
 
@@ -829,7 +847,7 @@ export function App() {
 
     return () => window.clearTimeout(timeoutId);
   }, [
-    currentAppState,
+    serverAppState,
     isStateLoaded,
   ]);
 
@@ -845,10 +863,11 @@ export function App() {
           data: currentAppState,
         })
       );
+      window.localStorage.setItem("rubrix-auto-backups", JSON.stringify(autoBackups.slice(0, 5)));
     } catch {
       // Local backup is best-effort; Supabase save status remains the primary visible signal.
     }
-  }, [currentAppState, isStateLoaded]);
+  }, [autoBackups, currentAppState, isStateLoaded]);
 
   const stats = useMemo(
     () => [
