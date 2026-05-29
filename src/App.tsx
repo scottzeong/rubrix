@@ -285,6 +285,32 @@ function calculateAiNormalizedScoreMap<T extends { id: string; aiEvaluationScore
   return normalizedScores;
 }
 
+function alignRubrixTuningToAins(evaluations: Evaluation[]) {
+  return evaluations.map((evaluation) => {
+    if (
+      evaluation.aiNormalizedScore === undefined ||
+      evaluation.rubrixTuningScore === undefined ||
+      evaluation.rubrixTuningDelta === undefined
+    ) {
+      return evaluation;
+    }
+
+    const ains = Math.round(evaluation.aiNormalizedScore * 10) / 10;
+    const delta = Math.round(evaluation.rubrixTuningDelta * 10) / 10;
+    const score = Math.round(Math.max(0, Math.min(100, ains + delta)) * 10) / 10;
+
+    return {
+      ...evaluation,
+      rubrixTuningScore: score,
+      rubrixTuningDelta: Math.round((score - ains) * 10) / 10,
+      rubrixTuningBaseScore: ains,
+      rubrixTuningFormula: `RTS = AINS ${delta >= 0 ? "+" : "-"} ${Math.abs(delta)} = ${ains} ${
+        delta >= 0 ? "+" : "-"
+      } ${Math.abs(delta)} = ${score}`,
+    };
+  });
+}
+
 const initialTaskTypes: TaskType[] = [
   {
     id: "literature-review",
@@ -838,7 +864,7 @@ export function App() {
           setAssignments(payload.data.assignments ?? initialAssignments);
           setTaskTypes(payload.data.taskTypes ?? initialTaskTypes);
           setSubmissions(payload.data.submissions ?? []);
-          setEvaluations(payload.data.evaluations ?? []);
+          setEvaluations(alignRubrixTuningToAins(payload.data.evaluations ?? []));
           setSimilarityAnalyses(payload.data.similarityAnalyses ?? []);
           setAiBaselines(payload.data.aiBaselines ?? []);
           setAiGeneratedResults(payload.data.aiGeneratedResults ?? []);
@@ -967,7 +993,7 @@ export function App() {
     setAssignments(nextState.assignments ?? []);
     setTaskTypes(nextState.taskTypes?.length ? nextState.taskTypes : initialTaskTypes);
     setSubmissions(nextState.submissions ?? []);
-    setEvaluations(nextState.evaluations ?? []);
+    setEvaluations(alignRubrixTuningToAins(nextState.evaluations ?? []));
     setSimilarityAnalyses(nextState.similarityAnalyses ?? []);
     setAiBaselines(nextState.aiBaselines ?? []);
     setAiGeneratedResults(nextState.aiGeneratedResults ?? []);
@@ -1384,7 +1410,7 @@ export function App() {
       .map((evaluation) => {
         const submission = submissions.find((item) => item.id === evaluation.submissionId);
         if (!submission) return null;
-        const aiNormalizedScore = aiNormalizedScoreMap.get(evaluation.id);
+        const aiNormalizedScore = evaluation.aiNormalizedScore ?? aiNormalizedScoreMap.get(evaluation.id);
         if (aiNormalizedScore === undefined) return null;
         const similaritySummary = similarityAnalyses
           .find((analysis) => analysis.assignmentId === assignmentId)
@@ -1416,7 +1442,7 @@ export function App() {
     setEvaluations((current) =>
       current.map((evaluation) => {
         const result = tuningMap.get(evaluation.id);
-        const aiNormalizedScore = aiNormalizedScoreMap.get(evaluation.id);
+        const aiNormalizedScore = evaluation.aiNormalizedScore ?? aiNormalizedScoreMap.get(evaluation.id);
         return result
           ? {
               ...evaluation,

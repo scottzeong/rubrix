@@ -89,8 +89,8 @@
   <header>
     <div class="eyebrow">Rubric Tuning Score · v2 — Risk-Reinforced</div>
     <h1>품질×유사 상호작용까지 반영한<br>평가점수 보정 모델</h1>
-    <div class="formula">RTS = AIES + <b>ρ</b>·[ max(g,0)·(M−AIES) + min(g,0)·AIES ] ,&nbsp; g = −tanh(<b>k</b>·Z<sub>S</sub>)</div>
-    <div class="formula">Z<sub>S</sub> = Z<sub>sim</sub> + <em>w<sub>A</sub></em>·Z<sub>AIES</sub> + <em>w<sub>int</sub></em>·Ẑ<sub>int</sub> &nbsp;|&nbsp; Z<sub>ai</sub> = (1−<em>θ</em>)·평균 + <em>θ</em>·<em>max</em> &nbsp;|&nbsp; Z<sub>int</sub> = ReLU(Z<sub>AIES</sub>)·ReLU(Z<sub>sim</sub>)</div>
+    <div class="formula">RTS = AINS + <b>ρ</b>·[ max(g,0)·(M−AINS) + min(g,0)·AINS ] ,&nbsp; g = −tanh(<b>k</b>·Z<sub>S</sub>)</div>
+    <div class="formula">Z<sub>S</sub> = Z<sub>sim</sub> + <em>w<sub>A</sub></em>·Z<sub>AINS</sub> + <em>w<sub>int</sub></em>·Ẑ<sub>int</sub> &nbsp;|&nbsp; Z<sub>ai</sub> = (1−<em>θ</em>)·평균 + <em>θ</em>·<em>max</em> &nbsp;|&nbsp; Z<sub>int</sub> = ReLU(Z<sub>AINS</sub>)·ReLU(Z<sub>sim</sub>)</div>
   </header>
 
   <div class="grid">
@@ -114,7 +114,7 @@
           <div class="ctrl-desc">"고품질 + 고유사" 사분면만 추가 감점 (AI생성 의심). 정직한 원본은 건드리지 않음.</div>
         </div>
         <div class="ctrl">
-          <div class="ctrl-row"><span class="ctrl-name"><span class="greek">w</span><sub>A</sub> AIES 선형 위험</span><span class="ctrl-val" id="wAVal">0.20</span></div>
+          <div class="ctrl-row"><span class="ctrl-name"><span class="greek">w</span><sub>A</sub> AINS 선형 위험</span><span class="ctrl-val" id="wAVal">0.20</span></div>
           <input type="range" class="hot" id="wASlider" min="0" max="0.6" step="0.05" value="0.2">
           <div class="ctrl-desc">고품질 자체를 약한 위험으로. 크게 올리면 정직한 상위권도 깎일 수 있음(주의).</div>
         </div>
@@ -167,7 +167,7 @@
 
       <div class="charts">
         <div class="chart-card">
-          <div class="chart-head"><span class="chart-title">AIES → RTS 이동</span><span class="chart-note">대각선 위=가점 · 아래=감점</span></div>
+          <div class="chart-head"><span class="chart-title">AINS → RTS 이동</span><span class="chart-note">대각선 위=가점 · 아래=감점</span></div>
           <svg id="scatter" viewBox="0 0 420 360"></svg>
           <div class="legend"><span><i style="background:var(--gain)"></i>가점</span><span><i style="background:var(--penalty)"></i>감점</span><span><i style="background:var(--faint)"></i>변화 없음</span><span>◎=의심 사분면</span></div>
         </div>
@@ -191,7 +191,7 @@
         <div class="table-scroll">
           <table id="table">
             <thead><tr>
-              <th>리포트</th><th>AIES</th>
+              <th>리포트</th><th>AINS</th>
               <th class="grp-sim">ST</th><th class="grp-sim">SP</th><th class="grp-sim">PP</th><th class="grp-sim">FP</th>
               <th class="grp-ai">GPTH</th><th class="grp-ai">GPTL</th><th class="grp-ai">CLDH</th><th class="grp-ai">CLDL</th><th class="grp-ai">GMNH</th><th class="grp-ai">GMNL</th>
               <th>최유사</th><th>Z<sub>S</sub></th><th>g</th><th style="color:var(--accent)">RTS</th><th>Δ</th><th></th>
@@ -242,7 +242,7 @@ function compute(){
   const muA=cols.AIES.m, sgA=cols.AIES.s;
   const zc=(key,i)=>{const c=cols[key];return c.s>1e-9?(c.vals[i]-c.m)/c.s:0;};
 
-  // pass 1: similarity risk, AIES-z, raw interaction, max-model
+  // pass 1: similarity risk, AINS-z, raw interaction, max-model
   const tmp=reports.map((r,i)=>{
     const zA=zc('AIES',i);
     const Ztext=SIM.reduce((t,k)=>t+(beta[k]/bSum)*zc(k,i),0);
@@ -312,7 +312,7 @@ function refresh(){
   const ra=out.map(o=>o.rts);const muR=mean(ra),sgR=std(ra),dMu=muR-muA,dSg=sgR-sgA;
   const nSus=out.filter(o=>o.suspect).length;
   document.getElementById('stats').innerHTML=`
-    <div class="stat"><div class="k">평균 AIES→RTS</div><div class="v num">${muA.toFixed(1)}→${muR.toFixed(1)}<span class="delta ${dMu>=0?'up':'down'}">${dMu>=0?'+':''}${dMu.toFixed(1)}</span></div></div>
+    <div class="stat"><div class="k">평균 AINS→RTS</div><div class="v num">${muA.toFixed(1)}→${muR.toFixed(1)}<span class="delta ${dMu>=0?'up':'down'}">${dMu>=0?'+':''}${dMu.toFixed(1)}</span></div></div>
     <div class="stat"><div class="k">표준편차 σ</div><div class="v num">${sgA.toFixed(1)}→${sgR.toFixed(1)}<span class="delta ${dSg>=0?'up':'down'}">${dSg>=0?'+':''}${dSg.toFixed(1)}</span></div></div>
     <div class="stat"><div class="k">최대 감점</div><div class="v num down">${Math.min(0,...out.map(o=>o.rts-o.A)).toFixed(1)}</div></div>
     <div class="stat"><div class="k">의심 사분면</div><div class="v num" style="color:var(--alert)">${nSus}<span style="font-size:12px;color:var(--muted)"> / ${out.length}건</span></div></div>`;
@@ -329,7 +329,7 @@ function drawScatter(out,M){
     s+=`<text x="${sx(t)}" y="${y0+15}" font-size="9" fill="var(--faint)" text-anchor="middle" font-family="IBM Plex Mono">${t.toFixed(0)}</text>`;
     s+=`<text x="${x0-6}" y="${sy(t)+3}" font-size="9" fill="var(--faint)" text-anchor="end" font-family="IBM Plex Mono">${t.toFixed(0)}</text>`;}
   s+=`<line x1="${sx(0)}" y1="${sy(0)}" x2="${sx(M)}" y2="${sy(M)}" stroke="var(--line-strong)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
-  s+=`<text x="${(x0+x1)/2}" y="${H-4}" font-size="10" fill="var(--muted)" text-anchor="middle">원 평가점수 AIES</text>`;
+  s+=`<text x="${(x0+x1)/2}" y="${H-4}" font-size="10" fill="var(--muted)" text-anchor="middle">AI Normalized Score AINS</text>`;
   s+=`<text x="14" y="${(y0+y1)/2}" font-size="10" fill="var(--muted)" text-anchor="middle" transform="rotate(-90 14 ${(y0+y1)/2})">조정 점수 RTS</text>`;
   out.forEach(o=>{const px=sx(o.A),pa=sy(o.A),py=sy(o.rts),up=o.rts-o.A;
     const col=up>0.05?'var(--gain)':up<-0.05?'var(--penalty)':'var(--faint)';
@@ -355,11 +355,11 @@ function drawQuad(out){
   s+=`<text x="${x1-4}" y="${y1+13}" font-size="9.5" fill="var(--alert)" text-anchor="end" font-weight="600">의심: AI생성↑</text>`;
   s+=`<text x="${x1-4}" y="${y0-6}" font-size="9.5" fill="var(--gain)" text-anchor="end" font-weight="600">우수 원본</text>`;
   s+=`<text x="${x0+4}" y="${y1+13}" font-size="9" fill="var(--muted)">단순참고 의심</text>`;
-  s+=`<text x="${(x0+x1)/2}" y="${H-3}" font-size="10" fill="var(--muted)" text-anchor="middle">품질  Z(AIES)  →</text>`;
+  s+=`<text x="${(x0+x1)/2}" y="${H-3}" font-size="10" fill="var(--muted)" text-anchor="middle">품질  Z(AINS)  →</text>`;
   s+=`<text x="13" y="${(y1+y0)/2}" font-size="10" fill="var(--muted)" text-anchor="middle" transform="rotate(-90 13 ${(y1+y0)/2})">유사 위험  Z_sim  ↑</text>`;
   out.forEach(o=>{const col=o.suspect?'var(--alert)':(o.zA>0&&o.Zsim<0)?'var(--gain)':'var(--neutral)';
     if(o.suspect) s+=`<circle cx="${sx(o.zA)}" cy="${sy(o.Zsim)}" r="8.5" fill="none" stroke="var(--alert)" stroke-width="1.2" opacity=".7"/>`;
-    s+=`<circle cx="${sx(o.zA)}" cy="${sy(o.Zsim)}" r="5" fill="${col}" stroke="#fff"><title>${o.name}: Z_AIES=${o.zA.toFixed(2)}, Z_sim=${o.Zsim.toFixed(2)}</title></circle>`;
+    s+=`<circle cx="${sx(o.zA)}" cy="${sy(o.Zsim)}" r="5" fill="${col}" stroke="#fff"><title>${o.name}: Z_AINS=${o.zA.toFixed(2)}, Z_sim=${o.Zsim.toFixed(2)}</title></circle>`;
     s+=`<text x="${sx(o.zA)+8}" y="${sy(o.Zsim)+3}" font-size="9" fill="var(--ink)" font-family="IBM Plex Mono">${o.name}</text>`;});
   document.getElementById('quad').innerHTML=s;
 }
