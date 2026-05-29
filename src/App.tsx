@@ -99,6 +99,7 @@ type Evaluation = {
   rubrixTuningScore?: number;
   rubrixTuningDelta?: number;
   rubrixTuningBaseScore?: number;
+  rubrixTuningFormula?: string;
   rubrixTuningNote?: string;
 };
 
@@ -1423,6 +1424,7 @@ export function App() {
               rubrixTuningScore: result.score,
               rubrixTuningDelta: result.delta,
               rubrixTuningBaseScore: result.aiNormalizedScore,
+              rubrixTuningFormula: result.formula,
               rubrixTuningNote: result.note,
             }
           : evaluation;
@@ -3148,6 +3150,7 @@ function Evaluations({
                   기준 {selectedEvaluation.rubrixTuningBaseScore ?? selectedEvaluation.aiNormalizedScore ?? "-"}점
                   {" "} {selectedEvaluation.rubrixTuningDelta > 0 ? "+" : ""}
                   {selectedEvaluation.rubrixTuningDelta}점 = {selectedEvaluation.rubrixTuningScore}점 · {selectedEvaluation.rubrixTuningNote}
+                  {selectedEvaluation.rubrixTuningFormula ? ` · ${selectedEvaluation.rubrixTuningFormula}` : ""}
                 </small>
               ) : (
                 <small>상단의 Rubrix Tuning을 눌러 과제 단위로 계산하세요.</small>
@@ -3302,6 +3305,7 @@ type SafeTuningResult = {
   score: number;
   delta: number;
   aiNormalizedScore: number;
+  formula: string;
   note: string;
 };
 
@@ -3399,19 +3403,23 @@ function calculateSafeTuning(signals: SafeSignal[]) {
       safeDefaults.rho *
         (Math.max(kernel, 0) * (safeDefaults.maxScore - row.aiNormalizedScore) +
           Math.min(kernel, 0) * row.aiNormalizedScore);
-    const rawDelta = rawScore - row.aiNormalizedScore;
-    const cappedDelta = Math.max(-safeDefaults.hardCap, Math.min(safeDefaults.hardCap, rawDelta));
-    const tunedScore = clampScore(row.aiNormalizedScore + cappedDelta);
+    const rawAdjustment = rawScore - row.aiNormalizedScore;
+    const cappedAdjustment = Math.max(-safeDefaults.hardCap, Math.min(safeDefaults.hardCap, rawAdjustment));
+    const tunedScore = clampScore(row.aiNormalizedScore + cappedAdjustment);
+    const roundedAins = Math.round(row.aiNormalizedScore * 10) / 10;
+    const roundedScore = Math.round(tunedScore * 10) / 10;
+    const actualDelta = Math.round((roundedScore - roundedAins) * 10) / 10;
     const notes = [
       signals.length < 30 ? "소규모 코호트라 참고용으로 사용하세요." : "코호트 기준 보정값입니다.",
-      Math.abs(rawDelta) > safeDefaults.hardCap ? `하드캡 ±${safeDefaults.hardCap}점 적용` : "",
+      Math.abs(rawAdjustment) > safeDefaults.hardCap ? `하드캡 ±${safeDefaults.hardCap}점 적용` : "",
     ].filter(Boolean);
 
     return {
       evaluationId: row.evaluationId,
-      score: Math.round(tunedScore * 10) / 10,
-      delta: Math.round(cappedDelta * 10) / 10,
-      aiNormalizedScore: Math.round(row.aiNormalizedScore * 10) / 10,
+      score: roundedScore,
+      delta: actualDelta,
+      aiNormalizedScore: roundedAins,
+      formula: `RTS = AINS ${actualDelta >= 0 ? "+" : "-"} ${Math.abs(actualDelta)} = ${roundedAins} ${actualDelta >= 0 ? "+" : "-"} ${Math.abs(actualDelta)} = ${roundedScore}`,
       note: notes.join(" · "),
     };
   });
