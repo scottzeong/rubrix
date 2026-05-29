@@ -319,6 +319,10 @@ h2 {
   gap: 8px;
 }
 
+.submission-row .row-actions .primary-button {
+  display: none;
+}
+
 .backup-panel {
   display: grid;
   gap: 12px;
@@ -1350,6 +1354,37 @@ h2 {
   color: #dbeafe;
   font-size: 13px;
   padding: 9px 11px;
+}
+
+.safe-formula-sections {
+  display: grid;
+  gap: 14px;
+}
+
+.safe-formula-sections div {
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.safe-formula-sections h3 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.safe-formula-sections code {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  color: #1e3a8a;
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
 }
 
 .manual-guide {

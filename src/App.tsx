@@ -85,6 +85,7 @@ type Evaluation = {
   rubricSetId: string;
   totalScore: number;
   aiEvaluationScore?: number;
+  aiNormalizedScore?: number;
   status: "ai_completed" | "finalized";
   feedback: string;
   studentReport: string;
@@ -220,6 +221,56 @@ type AppStateData = BackupData & {
 const evaluationPromptVersion = "strict-evaluation-v2";
 const rubricPromptVersion = "rubric-prompt-v1";
 const safeModelVersion = "safe-v1.0";
+
+function normalizeAiEvaluationScores<T extends { id: string; aiEvaluationScore?: number; totalScore: number }>(
+  evaluations: T[]
+) {
+  if (evaluations.length < 2) {
+    return evaluations.map((evaluation) => ({
+      ...evaluation,
+      aiNormalizedScore: evaluation.aiEvaluationScore ?? evaluation.totalScore,
+      totalScore: evaluation.aiEvaluationScore ?? evaluation.totalScore,
+    }));
+  }
+
+  const rawScores = evaluations.map((evaluation) => evaluation.aiEvaluationScore ?? evaluation.totalScore);
+  const average = rawScores.reduce((total, score) => total + score, 0) / rawScores.length;
+  const minScore = Math.min(...rawScores);
+  const maxScore = Math.max(...rawScores);
+  const range = maxScore - minScore;
+
+  if (range >= 30) {
+    return evaluations.map((evaluation) => ({
+      ...evaluation,
+      aiNormalizedScore: evaluation.aiEvaluationScore ?? evaluation.totalScore,
+      totalScore: evaluation.aiEvaluationScore ?? evaluation.totalScore,
+    }));
+  }
+
+  const targetMin = Math.max(0, average - 15);
+  const targetMax = Math.min(100, average + 15);
+  const targetRange = targetMax - targetMin;
+  const rankedIds = [...evaluations]
+    .sort((left, right) => {
+      const scoreDiff = (left.aiEvaluationScore ?? left.totalScore) - (right.aiEvaluationScore ?? right.totalScore);
+      return scoreDiff || left.id.localeCompare(right.id);
+    })
+    .map((evaluation) => evaluation.id);
+
+  return evaluations.map((evaluation) => {
+    const rawScore = evaluation.aiEvaluationScore ?? evaluation.totalScore;
+    const normalized =
+      range > 0
+        ? targetMin + ((rawScore - minScore) / range) * targetRange
+        : targetMin + (rankedIds.indexOf(evaluation.id) / Math.max(1, evaluations.length - 1)) * targetRange;
+    const aiNormalizedScore = Math.max(0, Math.min(100, Math.round(normalized)));
+    return {
+      ...evaluation,
+      aiNormalizedScore,
+      totalScore: aiNormalizedScore,
+    };
+  });
+}
 
 const initialTaskTypes: TaskType[] = [
   {
@@ -1086,9 +1137,9 @@ export function App() {
     ]);
   }
 
-  async function runEvaluation(submission: Submission) {
+  async function runEvaluation(submission: Submission, options: { skipConfirm?: boolean } = {}) {
     const previousEvaluations = evaluations.filter((evaluation) => evaluation.submissionId === submission.id);
-    if (previousEvaluations.length > 0) {
+    if (previousEvaluations.length > 0 && !options.skipConfirm) {
       if (!window.confirm("이미 평가 결과가 있습니다. 재평가를 실행하고 기존 결과는 이력으로 보관할까요?")) return;
     }
     createAutoBackup(previousEvaluations.length ? "재평가 실행 전" : "평가 실행 전");
@@ -1214,6 +1265,7 @@ export function App() {
           rubricSetId: rubric.id,
           totalScore: evaluatedScore,
           aiEvaluationScore: evaluatedScore,
+          aiNormalizedScore: evaluatedScore,
           status: "ai_completed",
           prompt,
           feedback: evaluatedFeedback,
@@ -1236,6 +1288,139 @@ export function App() {
     } finally {
       setEvaluatingSubmissionIds((current) => current.filter((submissionId) => submissionId !== submission.id));
     }
+  }
+
+  async function runAssignmentEvaluations(assignmentId: string) {
+    const assignmentSubmissions = submissions.filter((submission) => submission.assignmentId === assignmentId);
+    if (assignmentSubmissions.length === 0) {
+      window.alert("선택한 과제에 등록된 제출물이 없습니다.");
+      return;
+    }
+
+    const submissionIds = new Set(assignmentSubmissions.map((submission) => submission.id));
+    const hasExistingEvaluations = evaluations.some((evaluation) => submissionIds.has(evaluation.submissionId));
+    if (
+      hasExistingEvaluations &&
+      !window.confirm("선택한 과제의 기존 평가 결과를 새 일괄 평가 결과로 덮어쓸까요? 기존 점수 이력은 보관하지 않습니다.")
+    ) {
+      return;
+    }
+
+    setEvaluatingSubmissionIds((current) => Array.from(new Set([...current, ...assignmentSubmissions.map((submission) => submission.id)])));
+
+    const assignment = assignments.find((item) => item.id === assignmentId);
+    const rubric = rubrics.find((item) => item.id === assignment?.rubricSetId) ?? selectedRubric;
+    const taskType = taskTypes.find((item) => item.id === assignment?.taskType) ?? taskTypes[0];
+    const criteriaText = rubric.categories
+      .map((categoryItem) => {
+        const enabledCriteria = categoryItem.criteria.filter((criterionItem) => criterionItem.enabled);
+        return `${categoryItem.name} (${categoryItem.maxScore}점): ${enabledCriteria.map((criterionItem) => criterionItem.name).join(", ")}`;
+      })
+      .join("\n");
+    const now = new Date().toISOString();
+    const nextEvaluations: Evaluation[] = [];
+
+    for (const submission of assignmentSubmissions) {
+      const fallbackScore = Math.max(45, Math.min(90, Math.round(62 + Math.min(26, submission.reportText.length / 220))));
+      const prompt = [
+        rubric.promptPersona,
+        "",
+        rubric.promptCommonCriteria,
+        "",
+        "중요한 원칙:",
+        rubric.promptPrinciples,
+        "",
+        "엄격한 점수 산정 지침:",
+        "- 리포트에 있는 내용만 평가하고 없는 내용을 추정하지 마세요.",
+        "- 같은 과제의 여러 제출물을 평가한다고 가정하고 0~100점 전체 척도를 사용하세요.",
+        "- 평균적인 제출물은 65~75점, 충분하지만 결함이 있는 제출물은 75~85점에 배치하세요.",
+        "- 90점 이상은 과제 요구, 분석, 근거, 구성, 표현, 연구윤리가 모두 매우 뛰어난 경우에만 부여하세요.",
+        "- 내용 누락, 근거 부족, 단순 요약, 논리 비약, 인용 문제, 과제 지시 미충족은 명확히 감점하세요.",
+        "",
+        `과제명: ${assignment?.title ?? "제목 없는 과제"}`,
+        `과제 설명: ${assignment?.description ?? ""}`,
+        `과제유형: ${taskType.name}`,
+        `과제유형 초점: ${taskType.focus.join(", ")}`,
+        `평가세트: ${rubric.name}`,
+        "",
+        "평가기준:",
+        criteriaText,
+        "",
+        "리포트 본문:",
+        submission.reportText,
+      ].join("\n");
+
+      let evaluatedScore = fallbackScore;
+      let evaluatedFeedback = "AI 평가 연결 실패 시 표시되는 임시 평가 결과입니다. 평가자는 Evaluations에서 내용을 확인하고 조정할 수 있습니다.";
+      let evaluatedStudentReport = createStudentReport({
+        assignmentTitle: assignment?.title ?? "제목 없는 과제",
+        taskType,
+        studentName: submission.studentName,
+        totalScore: fallbackScore,
+        categories: rubric.categories.map((categoryItem) => ({
+          name: categoryItem.name,
+          maxScore: categoryItem.maxScore,
+          score: Math.max(1, Math.min(categoryItem.maxScore, Math.round(categoryItem.maxScore * (fallbackScore / 100)))),
+          criteria: categoryItem.criteria.filter((criterionItem) => criterionItem.enabled).map((criterionItem) => criterionItem.name),
+        })),
+      });
+
+      try {
+        const response = await fetch("/api/evaluate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: aiModel,
+            prompt: `${prompt}
+
+반드시 다음 JSON 형식으로만 응답하세요.
+{
+  "total_score": 0,
+  "feedback": "평가 내용 요약 피드백",
+  "student_report": "학생에게 전달할 평가보고서"
+}`,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "AI 평가 요청에 실패했습니다.");
+        evaluatedScore = Math.max(0, Math.min(100, Math.round(Number(payload.result.total_score) || fallbackScore)));
+        evaluatedFeedback = payload.result.feedback || evaluatedFeedback;
+        evaluatedStudentReport = payload.result.student_report || evaluatedStudentReport;
+      } catch (error) {
+        evaluatedFeedback = `AI 평가 연결 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"} 현재는 임시 평가 결과를 표시합니다.`;
+      }
+
+      nextEvaluations.push({
+        id: crypto.randomUUID(),
+        submissionId: submission.id,
+        rubricSetId: rubric.id,
+        totalScore: evaluatedScore,
+        aiEvaluationScore: evaluatedScore,
+        aiNormalizedScore: evaluatedScore,
+        status: "ai_completed",
+        prompt,
+        feedback: evaluatedFeedback,
+        studentReport: evaluatedStudentReport,
+        evaluatedAt: now,
+        model: aiModel,
+        promptVersion: evaluationPromptVersion,
+        rubricPromptVersion,
+        safeModelVersion,
+      });
+    }
+
+    const normalizedEvaluations = normalizeAiEvaluationScores(nextEvaluations);
+    setEvaluations((current) => [
+      ...normalizedEvaluations,
+      ...current.filter((evaluation) => !submissionIds.has(evaluation.submissionId)),
+    ]);
+    setEvaluatingSubmissionIds((current) => current.filter((submissionId) => !submissionIds.has(submissionId)));
+    addAuditLog(
+      hasExistingEvaluations ? "rerun_assignment_evaluation" : "run_assignment_evaluation",
+      "assignment",
+      `과제 일괄 평가 완료: ${assignmentSubmissions.length}개 제출물`,
+      assignmentId
+    );
   }
 
   function finalizeEvaluation(evaluationId: string) {
@@ -1465,7 +1650,7 @@ export function App() {
             evaluations={evaluations}
             evaluatingSubmissionIds={evaluatingSubmissionIds}
             addSubmission={addSubmission}
-            runEvaluation={runEvaluation}
+            runAssignmentEvaluations={runAssignmentEvaluations}
             deleteSubmission={deleteSubmission}
           />
         )}
@@ -1740,6 +1925,73 @@ function Dashboard({
           })}
         </div>
       </article>
+
+      {false && (
+      <article className="panel safe-formula-panel safe-full-formula-panel">
+        <h2>SAFE Model Full Formula</h2>
+        <p className="muted">
+          아래 수식은 Rubrix Tuning Score가 계산되는 전체 흐름입니다. RTS는 최종점수를 자동 확정하는 값이 아니라,
+          평가자가 최종조정점수를 검토할 때 참고하는 보정 신호입니다.
+        </p>
+        <div className="safe-formula-sections">
+          <div>
+            <h3>1. Input Signals</h3>
+            <code>AIES_i = AI Evaluation Score of submission i</code>
+            <code>ST_i = sentence exact-match similarity</code>
+            <code>SP_i = sentence semantic similarity</code>
+            <code>PP_i = paragraph similarity</code>
+            <code>FP_i = structure similarity</code>
+            <code>AF_i = average AI Baseline similarity across selected models</code>
+          </div>
+          <div>
+            <h3>2. Text Similarity Integration</h3>
+            <code>T_i = beta_ST * ST_i + beta_SP * SP_i + beta_PP * PP_i + beta_FP * FP_i</code>
+            <code>beta_ST = 0.35, beta_SP = 0.30, beta_PP = 0.20, beta_FP = 0.15</code>
+          </div>
+          <div>
+            <h3>3. Logit Transform and Z-score</h3>
+            <code>L(x) = log((x + epsilon) / (100 - x + epsilon))</code>
+            <code>Z_X_i = (L(X_i) - mean(L(X))) / sd(L(X))</code>
+            <code>epsilon = 0.001</code>
+          </div>
+          <div>
+            <h3>4. Combined Similarity Signal</h3>
+            <code>Z_sim_i = lambda * Z_T_i + (1 - lambda) * Z_AF_i</code>
+            <code>lambda = 0.50</code>
+          </div>
+          <div>
+            <h3>5. High-Quality Similarity Interaction</h3>
+            <code>Z_int_i = z(ReLU(Z_AIES_i) * ReLU(Z_sim_i))</code>
+            <code>ReLU(x) = max(0, x)</code>
+          </div>
+          <div>
+            <h3>6. SAFE Risk Signal</h3>
+            <code>Z_S_i = Z_sim_i + w_A * Z_AIES_i + w_int * Z_int_i</code>
+            <code>w_A = 0.15, w_int = 0.50</code>
+          </div>
+          <div>
+            <h3>7. Adjustment Kernel</h3>
+            <code>g_i = -tanh(k * Z_S_i)</code>
+            <code>k = 1.0</code>
+          </div>
+          <div>
+            <h3>8. Rubrix Tuning Score</h3>
+            <code>RTS_raw_i = AIES_i + rho * [max(g_i, 0) * (100 - AIES_i) + min(g_i, 0) * AIES_i]</code>
+            <code>rho = 0.15</code>
+            <code>RTS_i = clamp(RTS_raw_i, AIES_i - 8, AIES_i + 8)</code>
+            <code>RTS_i = clamp(RTS_i, 0, 100)</code>
+          </div>
+          <div>
+            <h3>9. AI Normalized Score</h3>
+            <code>if range(AIES) &lt; 30: target_min = mean(AIES) - 15</code>
+            <code>target_max = mean(AIES) + 15</code>
+            <code>AINS_i = target_min + ((AIES_i - min(AIES)) / range(AIES)) * 30</code>
+            <code>if range(AIES) &gt;= 30: AINS_i = AIES_i</code>
+            <code>Final adjustment score starts from AINS_i and can be edited by the evaluator.</code>
+          </div>
+        </div>
+      </article>
+      )}
     </section>
   );
 }
@@ -2381,7 +2633,7 @@ function Submissions({
   evaluations,
   evaluatingSubmissionIds,
   addSubmission,
-  runEvaluation,
+  runAssignmentEvaluations,
   deleteSubmission,
 }: {
   submissions: Submission[];
@@ -2392,7 +2644,7 @@ function Submissions({
     inputType: "pdf" | "text",
     values: { assignmentId: string; studentName: string; studentIdentifier: string; fileName?: string; reportText: string }
   ) => void;
-  runEvaluation: (submission: Submission) => Promise<void>;
+  runAssignmentEvaluations: (assignmentId: string) => Promise<void>;
   deleteSubmission: (submissionId: string) => void;
 }) {
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(assignments[0]?.id ?? "");
@@ -2421,6 +2673,10 @@ function Submissions({
   const selectedSubmissionEvaluating = selectedSubmission
     ? evaluatingSubmissionIds.includes(selectedSubmission.id)
     : false;
+  const selectedAssignmentEvaluating = filteredSubmissions.some((submission) =>
+    evaluatingSubmissionIds.includes(submission.id)
+  );
+  const runEvaluation = (_submission: Submission) => runAssignmentEvaluations(selectedAssignmentId || assignments[0]?.id || "");
 
   function submitReport() {
     const trimmedText = reportText.trim();
@@ -2445,6 +2701,16 @@ function Submissions({
           <h2>제출물 목록</h2>
           <p className="muted">PDF 업로드와 텍스트 붙여넣기를 지원합니다.</p>
         </div>
+        <div className="button-group">
+          <button
+            className="primary-button"
+            type="button"
+            disabled={filteredSubmissions.length === 0 || selectedAssignmentEvaluating}
+            onClick={() => runAssignmentEvaluations(selectedAssignmentId || assignments[0]?.id || "")}
+          >
+            {selectedAssignmentEvaluating ? <span className="button-spinner" /> : <Square size={16} />}
+            {selectedAssignmentEvaluating ? "일괄 평가 중" : "일괄 AI 평가"}
+          </button>
         <button
           className="secondary-button"
           type="button"
@@ -2452,6 +2718,7 @@ function Submissions({
         >
           {submissionSortDirection === "asc" ? "오름차순" : "내림차순"}
         </button>
+        </div>
       </div>
       <div className="submission-form">
         <div className="form-grid">
@@ -3039,6 +3306,7 @@ function Evaluations({
           </div>
           <div className="evaluation-score-row primary-score-row">
             <div><span>AI 평가점수</span><strong>{selectedEvaluation.aiEvaluationScore ?? selectedEvaluation.totalScore}</strong></div>
+            <div><span>AI Normalized Score</span><strong>{selectedEvaluation.aiNormalizedScore ?? "-"}</strong></div>
             <div><span>AI Generated</span><ScoreBadge score={aiGeneratedScore?.averageScore} /></div>
             <div><span>Analysis 종합</span><ScoreBadge score={similaritySummary?.score} /></div>
           </div>
@@ -3886,7 +4154,77 @@ function SafeModelGuide() {
           <code>RTS = AIES + ρ·[max(g,0)(M−AIES) + min(g,0)AIES]</code>
         </div>
       </article>
+      <SafeFullFormulaPanel />
     </section>
+  );
+}
+
+function SafeFullFormulaPanel() {
+  return (
+    <article className="panel safe-formula-panel safe-full-formula-panel">
+      <h2>SAFE Model Full Formula</h2>
+      <p className="muted">
+        아래 수식은 Rubrix Tuning Score가 계산되는 전체 흐름입니다. RTS는 최종점수를 자동 확정하는 값이 아니라,
+        평가자가 최종조정점수를 검토할 때 참고하는 보정 신호입니다.
+      </p>
+      <div className="safe-formula-sections">
+        <div>
+          <h3>1. Input Signals</h3>
+          <code>AIES_i = AI Evaluation Score of submission i</code>
+          <code>ST_i = sentence exact-match similarity</code>
+          <code>SP_i = sentence semantic similarity</code>
+          <code>PP_i = paragraph similarity</code>
+          <code>FP_i = structure similarity</code>
+          <code>AF_i = average AI Baseline similarity across selected models</code>
+        </div>
+        <div>
+          <h3>2. Text Similarity Integration</h3>
+          <code>T_i = beta_ST * ST_i + beta_SP * SP_i + beta_PP * PP_i + beta_FP * FP_i</code>
+          <code>beta_ST = 0.35, beta_SP = 0.30, beta_PP = 0.20, beta_FP = 0.15</code>
+        </div>
+        <div>
+          <h3>3. Logit Transform and Z-score</h3>
+          <code>L(x) = log((x + epsilon) / (100 - x + epsilon))</code>
+          <code>Z_X_i = (L(X_i) - mean(L(X))) / sd(L(X))</code>
+          <code>epsilon = 0.001</code>
+        </div>
+        <div>
+          <h3>4. Combined Similarity Signal</h3>
+          <code>Z_sim_i = lambda * Z_T_i + (1 - lambda) * Z_AF_i</code>
+          <code>lambda = 0.50</code>
+        </div>
+        <div>
+          <h3>5. High-Quality Similarity Interaction</h3>
+          <code>Z_int_i = z(ReLU(Z_AIES_i) * ReLU(Z_sim_i))</code>
+          <code>ReLU(x) = max(0, x)</code>
+        </div>
+        <div>
+          <h3>6. SAFE Risk Signal</h3>
+          <code>Z_S_i = Z_sim_i + w_A * Z_AIES_i + w_int * Z_int_i</code>
+          <code>w_A = 0.15, w_int = 0.50</code>
+        </div>
+        <div>
+          <h3>7. Adjustment Kernel</h3>
+          <code>g_i = -tanh(k * Z_S_i)</code>
+          <code>k = 1.0</code>
+        </div>
+        <div>
+          <h3>8. Rubrix Tuning Score</h3>
+          <code>RTS_raw_i = AIES_i + rho * [max(g_i, 0) * (100 - AIES_i) + min(g_i, 0) * AIES_i]</code>
+          <code>rho = 0.15</code>
+          <code>RTS_i = clamp(RTS_raw_i, AIES_i - 8, AIES_i + 8)</code>
+          <code>RTS_i = clamp(RTS_i, 0, 100)</code>
+        </div>
+        <div>
+          <h3>9. AI Normalized Score</h3>
+          <code>if range(AIES) &lt; 30: target_min = mean(AIES) - 15</code>
+          <code>target_max = mean(AIES) + 15</code>
+          <code>AINS_i = target_min + ((AIES_i - min(AIES)) / range(AIES)) * 30</code>
+          <code>if range(AIES) &gt;= 30: AINS_i = AIES_i</code>
+          <code>Final adjustment score starts from AINS_i and can be edited by the evaluator.</code>
+        </div>
+      </div>
+    </article>
   );
 }
 
