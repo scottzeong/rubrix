@@ -22,27 +22,57 @@ function requireSupabaseConfig(response) {
   return true;
 }
 
+function supabaseEndpoint() {
+  const baseUrl = process.env.SUPABASE_URL.replace(/\/rest\/v1\/?$/i, "").replace(/\/+$/, "");
+  return `${baseUrl}/rest/v1/app_state`;
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export default async function handler(request, response) {
   if (!requireSupabaseConfig(response)) return;
 
-  const endpoint = `${process.env.SUPABASE_URL}/rest/v1/app_state`;
+  const endpoint = supabaseEndpoint();
 
   if (request.method === "GET") {
-    const supabaseResponse = await fetch(`${endpoint}?id=eq.${stateId}&select=data`, {
-      headers: supabaseHeaders(),
-    });
-    const payload = await supabaseResponse.json();
+    try {
+      const supabaseResponse = await fetchWithTimeout(`${endpoint}?id=eq.${stateId}&select=data`, {
+        headers: supabaseHeaders(),
+      });
+      const payload = await supabaseResponse.json();
 
-    if (!supabaseResponse.ok) {
-      response.status(supabaseResponse.status).json({
-        error: payload.message || "Failed to load app state.",
+      if (!supabaseResponse.ok) {
+        response.status(supabaseResponse.status).json({
+          error: payload.message || "Failed to load app state.",
+        });
+        return;
+      }
+
+      response.status(200).json({
+        data: payload[0]?.data ?? null,
       });
       return;
+    } catch (error) {
+      response.status(504).json({
+        error: error instanceof Error && error.name === "AbortError"
+          ? "Supabase 저장소 응답 시간이 초과되었습니다."
+          : error instanceof Error
+            ? error.message
+            : "Failed to load app state.",
+      });
     }
-
-    response.status(200).json({
-      data: payload[0]?.data ?? null,
-    });
     return;
   }
 
@@ -54,27 +84,38 @@ export default async function handler(request, response) {
       return;
     }
 
-    const supabaseResponse = await fetch(`${endpoint}?on_conflict=id`, {
-      method: "POST",
-      headers: supabaseHeaders(),
-      body: JSON.stringify({
-        id: stateId,
-        data,
-        updated_at: new Date().toISOString(),
-      }),
-    });
-    const payload = await supabaseResponse.json();
+    try {
+      const supabaseResponse = await fetchWithTimeout(`${endpoint}?on_conflict=id`, {
+        method: "POST",
+        headers: supabaseHeaders(),
+        body: JSON.stringify({
+          id: stateId,
+          data,
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      const payload = await supabaseResponse.json();
 
-    if (!supabaseResponse.ok) {
-      response.status(supabaseResponse.status).json({
-        error: payload.message || "Failed to save app state.",
+      if (!supabaseResponse.ok) {
+        response.status(supabaseResponse.status).json({
+          error: payload.message || "Failed to save app state.",
+        });
+        return;
+      }
+
+      response.status(200).json({
+        data: payload[0]?.data ?? data,
       });
       return;
+    } catch (error) {
+      response.status(504).json({
+        error: error instanceof Error && error.name === "AbortError"
+          ? "Supabase 저장소 응답 시간이 초과되었습니다."
+          : error instanceof Error
+            ? error.message
+            : "Failed to save app state.",
+      });
     }
-
-    response.status(200).json({
-      data: payload[0]?.data ?? data,
-    });
     return;
   }
 

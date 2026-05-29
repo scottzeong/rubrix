@@ -686,6 +686,22 @@ async function readApiJson(response: Response) {
   return response.json();
 }
 
+async function fetchJsonWithTimeout(url: string, options?: RequestInit, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    const payload = await readApiJson(response);
+    return { response, payload };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export function App() {
   const [activeMenu, setActiveMenu] = useState<MenuKey>("dashboard");
   const [rubrics, setRubrics] = useState<RubricSet[]>([seedRubric]);
@@ -743,8 +759,7 @@ export function App() {
 
     async function loadState() {
       try {
-        const response = await fetch("/api/state");
-        const payload = await readApiJson(response);
+        const { response, payload } = await fetchJsonWithTimeout("/api/state");
 
         if (!response.ok) {
           throw new Error(payload.error || "저장된 데이터를 불러오지 못했습니다.");
@@ -794,14 +809,13 @@ export function App() {
 
     const timeoutId = window.setTimeout(async () => {
       try {
-        const response = await fetch("/api/state", {
+        const { response, payload } = await fetchJsonWithTimeout("/api/state", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             data: currentAppState,
           }),
         });
-        const payload = await readApiJson(response);
 
         if (!response.ok) {
           throw new Error(payload.error || "데이터 저장에 실패했습니다.");

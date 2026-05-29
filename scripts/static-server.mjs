@@ -154,6 +154,25 @@ function hasSupabaseConfig() {
   return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
+function supabaseEndpoint() {
+  const baseUrl = process.env.SUPABASE_URL.replace(/\/rest\/v1\/?$/i, "").replace(/\/+$/, "");
+  return `${baseUrl}/rest/v1/app_state`;
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function handleState(request, response) {
   if (!hasSupabaseConfig()) {
     sendJson(response, 500, {
@@ -162,12 +181,12 @@ async function handleState(request, response) {
     return;
   }
 
-  const endpoint = `${process.env.SUPABASE_URL}/rest/v1/app_state`;
+  const endpoint = supabaseEndpoint();
   const stateId = "default";
 
   try {
     if (request.method === "GET") {
-      const supabaseResponse = await fetch(`${endpoint}?id=eq.${stateId}&select=data`, {
+      const supabaseResponse = await fetchWithTimeout(`${endpoint}?id=eq.${stateId}&select=data`, {
         headers: supabaseHeaders(),
       });
       const payload = await supabaseResponse.json();
@@ -192,7 +211,7 @@ async function handleState(request, response) {
         return;
       }
 
-      const supabaseResponse = await fetch(`${endpoint}?on_conflict=id`, {
+      const supabaseResponse = await fetchWithTimeout(`${endpoint}?on_conflict=id`, {
         method: "POST",
         headers: supabaseHeaders(),
         body: JSON.stringify({
@@ -216,8 +235,13 @@ async function handleState(request, response) {
 
     sendJson(response, 405, { error: "Method not allowed." });
   } catch (error) {
-    sendJson(response, 500, {
-      error: error instanceof Error ? error.message : "Unexpected state storage error.",
+    sendJson(response, error instanceof Error && error.name === "AbortError" ? 504 : 500, {
+      error:
+        error instanceof Error && error.name === "AbortError"
+          ? "Supabase 저장소 응답 시간이 초과되었습니다."
+          : error instanceof Error
+            ? error.message
+            : "Unexpected state storage error.",
     });
   }
 }
