@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Network,
   Plus,
+  RefreshCw,
   SearchCheck,
   Settings,
   ShieldCheck,
@@ -1437,6 +1438,21 @@ export function App() {
     ]);
   }
 
+  function resetAssignmentEvaluationMaterials(assignmentId: string) {
+    const assignmentSubmissionIds = new Set(
+      submissions.filter((submission) => submission.assignmentId === assignmentId).map((submission) => submission.id)
+    );
+    if (!assignmentSubmissionIds.size) return;
+    if (!window.confirm("이 과제의 AI Generated Score, Similarity, AI 평가 결과를 모두 지우고 Step 1부터 다시 시작할까요?")) {
+      return;
+    }
+
+    setAiGeneratedResults((current) => current.filter((result) => result.assignmentId !== assignmentId));
+    setSimilarityAnalyses((current) => current.filter((analysis) => analysis.assignmentId !== assignmentId));
+    setEvaluations((current) => current.filter((evaluation) => !assignmentSubmissionIds.has(evaluation.submissionId)));
+    addAuditLog("reset_evaluation_materials", "assignment", "평가자료를 지우고 재평가 흐름을 초기화했습니다.", assignmentId);
+  }
+
   function runRubrixTuning(assignmentId: string) {
     const assignmentEvaluations = evaluations.filter((evaluation) => {
       const submission = submissions.find((item) => item.id === evaluation.submissionId);
@@ -1572,11 +1588,14 @@ export function App() {
             submissions={submissions}
             assignments={assignments}
             evaluations={evaluations}
+            similarityAnalyses={similarityAnalyses}
+            aiGeneratedResults={aiGeneratedResults}
             evaluatingSubmissionIds={evaluatingSubmissionIds}
             addSubmission={addSubmission}
             runAiGeneratedDiagnosis={runAiGeneratedDiagnosis}
             runSimilarityAnalysis={runSimilarityAnalysis}
             runAssignmentEvaluations={runAssignmentEvaluations}
+            resetAssignmentEvaluationMaterials={resetAssignmentEvaluationMaterials}
             deleteSubmission={deleteSubmission}
           />
         )}
@@ -1605,7 +1624,6 @@ export function App() {
             analyses={similarityAnalyses}
             assignments={assignments}
             submissions={submissions}
-            runSimilarityAnalysis={runSimilarityAnalysis}
           />
         )}
         {activeMenu === "evaluations" && (
@@ -2491,16 +2509,21 @@ function Submissions({
   submissions,
   assignments,
   evaluations,
+  similarityAnalyses,
+  aiGeneratedResults,
   evaluatingSubmissionIds,
   addSubmission,
   runAiGeneratedDiagnosis,
   runSimilarityAnalysis,
   runAssignmentEvaluations,
+  resetAssignmentEvaluationMaterials,
   deleteSubmission,
 }: {
   submissions: Submission[];
   assignments: Assignment[];
   evaluations: Evaluation[];
+  similarityAnalyses: SimilarityAnalysis[];
+  aiGeneratedResults: AiGeneratedResult[];
   evaluatingSubmissionIds: string[];
   addSubmission: (
     inputType: "pdf" | "text",
@@ -2509,6 +2532,7 @@ function Submissions({
   runAiGeneratedDiagnosis: (assignmentId: string) => void;
   runSimilarityAnalysis: (assignmentId: string, modes: SimilarityMode[]) => void;
   runAssignmentEvaluations: (assignmentId: string) => Promise<void>;
+  resetAssignmentEvaluationMaterials: (assignmentId: string) => void;
   deleteSubmission: (submissionId: string) => void;
 }) {
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(assignments[0]?.id ?? "");
@@ -2543,6 +2567,14 @@ function Submissions({
     evaluatingSubmissionIds.includes(submission.id)
   );
   const activeAssignmentId = selectedAssignmentId || assignments[0]?.id || "";
+  const activeSubmissionIds = new Set(filteredSubmissions.map((submission) => submission.id));
+  const hasAiGeneratedScore = aiGeneratedResults.some((result) => result.assignmentId === activeAssignmentId);
+  const hasSimilarityAnalysis = similarityAnalyses.some((analysis) => analysis.assignmentId === activeAssignmentId);
+  const hasEvaluationResults = evaluations.some((evaluation) => activeSubmissionIds.has(evaluation.submissionId));
+  const canRunStep1 = filteredSubmissions.length > 0 && !hasAiGeneratedScore && !hasEvaluationResults;
+  const canRunStep2 = filteredSubmissions.length > 1 && hasAiGeneratedScore && !hasSimilarityAnalysis && !hasEvaluationResults;
+  const canRunStep3 =
+    filteredSubmissions.length > 0 && hasAiGeneratedScore && hasSimilarityAnalysis && !hasEvaluationResults;
 
   function submitReport() {
     const trimmedText = reportText.trim();
@@ -2561,7 +2593,7 @@ function Submissions({
   }
 
   function handleRunAiGeneratedDiagnosis() {
-    if (!activeAssignmentId || isRunningAiGenerated || filteredSubmissions.length === 0) return;
+    if (!activeAssignmentId || isRunningAiGenerated || !canRunStep1) return;
     setIsRunningAiGenerated(true);
     try {
       runAiGeneratedDiagnosis(activeAssignmentId);
@@ -2571,7 +2603,7 @@ function Submissions({
   }
 
   function handleRunSimilarityAnalysis() {
-    if (!activeAssignmentId || isRunningSimilarity || filteredSubmissions.length === 0) return;
+    if (!activeAssignmentId || isRunningSimilarity || !canRunStep2) return;
     setIsRunningSimilarity(true);
     try {
       runSimilarityAnalysis(activeAssignmentId, ["exact", "sentence", "paragraph", "structure"]);
@@ -2591,29 +2623,39 @@ function Submissions({
           <button
             className="secondary-button"
             type="button"
-            disabled={filteredSubmissions.length === 0 || isRunningAiGenerated || selectedAssignmentEvaluating}
+            disabled={!canRunStep1 || isRunningAiGenerated || selectedAssignmentEvaluating}
             onClick={handleRunAiGeneratedDiagnosis}
           >
             {isRunningAiGenerated ? <span className="button-spinner" /> : <BrainCircuit size={16} />}
-            {isRunningAiGenerated ? "처리 중" : "AI Generated Score"}
+            {isRunningAiGenerated ? "처리 중" : "Step 1 : AI generated"}
           </button>
           <button
             className="secondary-button"
             type="button"
-            disabled={filteredSubmissions.length === 0 || isRunningSimilarity || selectedAssignmentEvaluating}
+            disabled={!canRunStep2 || isRunningSimilarity || selectedAssignmentEvaluating}
             onClick={handleRunSimilarityAnalysis}
           >
             {isRunningSimilarity ? <span className="button-spinner" /> : <Network size={16} />}
-            {isRunningSimilarity ? "처리 중" : "Similarity"}
+            {isRunningSimilarity ? "처리 중" : "Step 2 : Similarity"}
           </button>
           <button
             className="primary-button"
             type="button"
-            disabled={filteredSubmissions.length === 0 || selectedAssignmentEvaluating}
-            onClick={() => runAssignmentEvaluations(activeAssignmentId)}
+            disabled={(!canRunStep3 && !hasEvaluationResults) || selectedAssignmentEvaluating}
+            onClick={() =>
+              hasEvaluationResults
+                ? resetAssignmentEvaluationMaterials(activeAssignmentId)
+                : runAssignmentEvaluations(activeAssignmentId)
+            }
           >
-            {selectedAssignmentEvaluating ? <span className="button-spinner" /> : <Square size={16} />}
-            {selectedAssignmentEvaluating ? "AI 평가 중" : "AI 평가"}
+            {selectedAssignmentEvaluating ? (
+              <span className="button-spinner" />
+            ) : hasEvaluationResults ? (
+              <RefreshCw size={16} />
+            ) : (
+              <Square size={16} />
+            )}
+            {selectedAssignmentEvaluating ? "처리 중" : hasEvaluationResults ? "재평가" : "Step 3 : Evaluation"}
           </button>
         <button
           className="secondary-button"
@@ -3608,12 +3650,10 @@ function Analysis({
   analyses,
   assignments,
   submissions,
-  runSimilarityAnalysis,
 }: {
   analyses: SimilarityAnalysis[];
   assignments: Assignment[];
   submissions: Submission[];
-  runSimilarityAnalysis: (assignmentId: string, modes: SimilarityMode[]) => void;
 }) {
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(assignments[0]?.id ?? "");
   const [selectedModes, setSelectedModes] = useState<SimilarityMode[]>([
@@ -3622,15 +3662,29 @@ function Analysis({
     "paragraph",
     "structure",
   ]);
-  const [isRunningAnalysis, setIsRunningAnalysis] = useState(false);
   const selectedAssignment = assignments.find((assignment) => assignment.id === selectedAssignmentId) ?? assignments[0];
   const assignmentSubmissions = submissions.filter((submission) => submission.assignmentId === selectedAssignment?.id);
   const analysis = analyses.find((item) => item.assignmentId === selectedAssignment?.id);
   const [selectedPairId, setSelectedPairId] = useState(analysis?.pairs[0]?.id ?? "");
-  const selectedPair = analysis?.pairs.find((pair) => pair.id === selectedPairId) ?? analysis?.pairs[0];
+  const pairModeScore = (pair: SimilarityPair) => {
+    const scores = selectedModes
+      .filter((mode) => analysis?.modes.includes(mode))
+      .map((mode) =>
+        mode === "exact"
+          ? pair.exactScore
+          : mode === "sentence"
+            ? pair.sentenceScore
+            : mode === "paragraph"
+              ? pair.paragraphScore
+              : pair.structureScore
+      );
+    return scores.length ? Math.round(scores.reduce((total, score) => total + score, 0) / scores.length) : pair.score;
+  };
+  const visiblePairs = [...(analysis?.pairs ?? [])].sort((left, right) => pairModeScore(right) - pairModeScore(left));
+  const selectedPair = visiblePairs.find((pair) => pair.id === selectedPairId) ?? visiblePairs[0];
   const selectedLeft = submissions.find((submission) => submission.id === selectedPair?.submissionAId);
   const selectedRight = submissions.find((submission) => submission.id === selectedPair?.submissionBId);
-  const analysisModes = analysis?.modes ?? [];
+  const analysisModes = selectedModes.filter((mode) => analysis?.modes.includes(mode));
 
   useEffect(() => {
     if (!selectedAssignmentId && assignments[0]?.id) {
@@ -3648,15 +3702,6 @@ function Analysis({
     );
   }
 
-  function runAnalysis() {
-    if (!selectedAssignment || selectedModes.length === 0 || assignmentSubmissions.length < 2 || isRunningAnalysis) return;
-    setIsRunningAnalysis(true);
-    window.setTimeout(() => {
-      runSimilarityAnalysis(selectedAssignment.id, selectedModes);
-      setIsRunningAnalysis(false);
-    }, 50);
-  }
-
   return (
     <section className="analysis-layout">
       <article className="panel analysis-control-panel">
@@ -3665,13 +3710,9 @@ function Analysis({
             <h2>유사도 분석</h2>
             <p className="muted">같은 과제의 제출물을 서로 비교합니다.</p>
           </div>
-          <button
-            className="primary-button"
-            disabled={assignmentSubmissions.length < 2 || selectedModes.length === 0 || isRunningAnalysis}
-            onClick={runAnalysis}
-          >
-            {isRunningAnalysis ? <span className="button-spinner" /> : <SearchCheck size={16} />}
-            {isRunningAnalysis ? "처리 중" : "분석 실행"}
+          <button className="secondary-button" disabled={selectedModes.length === 0}>
+            <SearchCheck size={16} />
+            필터링
           </button>
         </div>
         <div className="form-grid compact-form">
@@ -3710,7 +3751,7 @@ function Analysis({
           ))}
         </div>
         {assignmentSubmissions.length < 2 ? (
-          <p className="muted">유사도 분석은 같은 과제에 제출물이 2개 이상 있어야 실행할 수 있습니다.</p>
+          <p className="muted">유사도 필터링은 같은 과제에 제출물이 2개 이상 있어야 확인할 수 있습니다.</p>
         ) : null}
       </article>
 
@@ -3723,9 +3764,10 @@ function Analysis({
         </div>
         {!analysis ? <p className="muted">아직 분석 결과가 없습니다.</p> : null}
         <div className="similarity-list">
-          {analysis?.pairs.map((pair) => {
+          {visiblePairs.map((pair) => {
             const left = submissions.find((submission) => submission.id === pair.submissionAId);
             const right = submissions.find((submission) => submission.id === pair.submissionBId);
+            const displayScore = pairModeScore(pair);
             return (
               <button
                 className={selectedPair?.id === pair.id ? "similarity-row selected" : "similarity-row"}
@@ -3736,9 +3778,9 @@ function Analysis({
                   <strong>
                     {left?.studentName ?? "-"} / {right?.studentName ?? "-"}
                   </strong>
-                  <span>{similarityRiskLabel(pair.score)}</span>
+                  <span>{similarityRiskLabel(displayScore)}</span>
                 </div>
-                <b>{pair.score}%</b>
+                <b>{displayScore}%</b>
               </button>
             );
           })}
@@ -4177,11 +4219,10 @@ function UserManualGuide() {
             ["1", "Rubric Sets", "평가세트와 카테고리별 배점을 확인하고 필요하면 배점 수정으로 조정합니다."],
             ["2", "Assignments", "과제명, 과제유형, 설명, 사용할 평가세트를 등록합니다."],
             ["3", "AI Diagnosis", "과제별 AI Baseline을 만들고 모델별 기준 답안을 붙여 넣습니다."],
-            ["4", "Submissions", "학생 제출물을 모두 등록한 뒤 과제 단위로 일괄 AI 평가를 실행합니다."],
-            ["5", "AI Generated Score", "학생 제출물과 AI Baseline의 유사도를 과제 단위로 일괄 계산합니다."],
-            ["6", "Analysis", "같은 과제 제출물끼리 문장일치, 문장유사, 문단유사, 구조유사를 분석합니다."],
-            ["7", "Evaluations", "AI 점수, AI Normalized Score, 유사도, Rubrix Tuning Score를 보고 최종확정합니다."],
-            ["8", "Reports", "최종확정된 피드백과 학생용 보고서를 과제별로 확인합니다."],
+            ["4", "Submissions", "Step 1 : AI generated, Step 2 : Similarity, Step 3 : Evaluation 순서로 실행합니다."],
+            ["5", "Analysis", "이미 계산된 유사도 결과를 문장일치, 문장유사, 문단유사, 구조유사 기준으로 필터링합니다."],
+            ["6", "Evaluations", "AI 점수, AI Normalized Score, 유사도, Rubrix Tuning Score를 보고 최종확정합니다."],
+            ["7", "Reports", "최종확정된 피드백과 학생용 보고서를 과제별로 확인합니다."],
           ].map(([step, title, text]) => (
             <div className="manual-step" key={step}>
               <b>{step}</b>
@@ -4240,13 +4281,15 @@ function UserManualGuide() {
           <h2>4. 제출물 등록과 AI 평가</h2>
           <p className="muted">
             `Submissions`에서 과제를 선택하고 학생별 제출물을 모두 등록합니다. PDF 업로드 또는 텍스트 붙여넣기를
-            사용할 수 있으며, 등록이 끝난 뒤 `AI Generated Score`, `Similarity`, `AI 평가` 순서로 실행합니다.
+            사용할 수 있으며, 등록이 끝난 뒤 `Step 1 : AI generated`, `Step 2 : Similarity`, `Step 3 : Evaluation`
+            순서로 실행합니다.
           </p>
           <ul className="safe-bullets">
             <li>같은 과제의 제출물은 반드시 같은 과제로 등록해야 이후 비교분석이 정확합니다.</li>
-            <li>AI Generated Score와 Similarity를 먼저 실행하면 AINS 동점 처리 기준이 준비됩니다.</li>
+            <li>처음에는 Step 1만 활성화되고, 각 단계가 끝나면 다음 단계만 활성화됩니다.</li>
+            <li>Step 1과 Step 2를 먼저 실행하면 AINS 동점 처리 기준이 준비됩니다.</li>
             <li>개별 평가 버튼은 사용하지 않고 과제 단위 일괄 평가만 사용합니다.</li>
-            <li>이미 평가된 과제를 다시 일괄 평가하면 기존 결과를 새 결과로 덮어쓰며, 점수 이력은 저장하지 않습니다.</li>
+            <li>평가가 끝나면 Step 3 버튼은 `재평가`로 바뀌며, 재평가를 누르면 AI Generated Score, Similarity, AI 평가 결과가 삭제되고 Step 1부터 다시 시작합니다.</li>
             <li>평가 실행 중에는 로딩 표시가 나타나고, 완료 후에도 화면은 Submissions에 머뭅니다.</li>
             <li>제출물 목록은 오름차순 또는 내림차순으로 정렬할 수 있습니다.</li>
             <li>제출물을 삭제하면 연결된 평가 결과도 함께 삭제됩니다.</li>
@@ -4290,13 +4333,14 @@ function UserManualGuide() {
         <article className="panel">
           <h2>7. 유사도 분석</h2>
           <p className="muted">
-            `Analysis`는 같은 과제 제출물끼리 비교합니다. 결과는 각 리포트가 다른 리포트들과 얼마나 유사한지
-            상위 10% 평균을 기준으로 요약되어 SAFE Model에 사용됩니다.
+            `Analysis`는 Submissions의 Step 2에서 계산된 결과를 확인하는 화면입니다. 결과는 각 리포트가
+            다른 리포트들과 얼마나 유사한지 상위 10% 평균을 기준으로 요약되어 SAFE Model에 사용됩니다.
           </p>
           <ul className="safe-bullets">
             <li>Exact Match는 거의 같은 문장 또는 긴 문장 일치를 봅니다.</li>
             <li>Sentence, Paragraph, Structure Similarity는 표현·문단·구조의 유사성을 봅니다.</li>
-            <li>선택하지 않은 분석 기준은 결과에서 `-`로 표시됩니다.</li>
+            <li>Analysis에서는 새 분석을 실행하지 않고 4개 기준을 선택해 결과를 필터링합니다.</li>
+            <li>선택한 기준에 따라 목록 점수와 본문 하이라이트가 바뀝니다.</li>
           </ul>
         </article>
       </div>
@@ -4358,7 +4402,7 @@ function UserManualGuide() {
           </div>
           <div>
             <strong>일괄 재평가</strong>
-            <span>기존 평가가 있는 과제는 `일괄 AI 평가`로 다시 실행할 수 있고, 기존 결과는 새 결과로 덮어씁니다.</span>
+            <span>`재평가`를 누르면 해당 과제의 AI Generated Score, Similarity, AI 평가 결과를 지우고 Step 1부터 다시 시작합니다.</span>
           </div>
           <div>
             <strong>Data Check</strong>
