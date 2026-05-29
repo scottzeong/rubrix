@@ -1401,6 +1401,15 @@ h2 {
   line-height: 1.5;
 }
 
+.rts-simulator-frame {
+  background: #f8fafc;
+  border: 0;
+  border-radius: 8px;
+  display: block;
+  min-height: 1180px;
+  width: 100%;
+}
+
 .analysis-layout {
   display: grid;
   gap: 18px;

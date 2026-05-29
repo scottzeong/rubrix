@@ -3,6 +3,7 @@ import {
   BookOpenCheck,
   Bot,
   BrainCircuit,
+  Calculator,
   CheckCircle2,
   ClipboardCheck,
   FileText,
@@ -16,6 +17,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import rtsSimulatorHtml from "./assets/RTS_Calculator_SAFE_offline.html?raw";
 import rubrixLogo from "./assets/rubrix.png";
 
 type MenuKey =
@@ -30,7 +32,8 @@ type MenuKey =
   | "reports"
   | "settings"
   | "safeModel"
-  | "userManual";
+  | "userManual"
+  | "rtsSimulator";
 
 type Criterion = {
   id: string;
@@ -405,6 +408,7 @@ const menu = [
   { key: "settings", label: "Settings", icon: Settings },
   { key: "safeModel", label: "Rubrix Tuning (SAFE Model)", icon: ShieldCheck },
   { key: "userManual", label: "User Manual", icon: FileText },
+  { key: "rtsSimulator", label: "RTS Simulator", icon: Calculator },
 ] satisfies { key: MenuKey; label: string; icon: typeof LayoutDashboard }[];
 
 function statusLabel(status: Evaluation["status"]) {
@@ -1522,6 +1526,7 @@ export function App() {
         )}
         {activeMenu === "safeModel" && <SafeModelGuide />}
         {activeMenu === "userManual" && <UserManualGuide />}
+        {activeMenu === "rtsSimulator" && <RtsSimulator />}
       </main>
     </div>
   );
@@ -4079,6 +4084,69 @@ function UserManualGuide() {
             <span>현재 단계에서는 Reports에서 `확정 해제`를 눌러 Evaluations로 되돌릴 수 있으며, 작업은 로그에 기록됩니다.</span>
           </div>
         </div>
+      </article>
+    </section>
+  );
+}
+
+function RtsSimulator() {
+  const simulatorHtml = useMemo(() => {
+    const overrideStyle = `
+      <style>
+        :root{
+          --paper:#f8fafc !important;
+          --surface:#ffffff !important;
+          --surface-2:#eff6ff !important;
+          --ink:#0f172a !important;
+          --muted:#64748b !important;
+          --faint:#94a3b8 !important;
+          --line:#dbeafe !important;
+          --line-strong:#bfdbfe !important;
+          --gain:#15803d !important;
+          --gain-soft:#dcfce7 !important;
+          --penalty:#dc2626 !important;
+          --penalty-soft:#fee2e2 !important;
+          --neutral:#1e40af !important;
+          --accent:#2563eb !important;
+          --alert:#dc2626 !important;
+        }
+        body{
+          background:#f8fafc !important;
+          font-family:"Pretendard Variable","Pretendard","Noto Sans KR","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif !important;
+          padding:0 !important;
+        }
+        .wrap{max-width:none !important;margin:0 !important;}
+        header{border-bottom:1px solid #bfdbfe !important;margin-bottom:18px !important;padding:18px 20px !important;background:#ffffff !important;border-radius:8px !important;}
+        h1,.panel-title,.chart-title{font-family:"Pretendard Variable","Pretendard","Noto Sans KR","Malgun Gothic",system-ui,sans-serif !important;letter-spacing:0 !important;}
+        h1{color:#0f172a !important;font-size:28px !important;}
+        .grid{grid-template-columns:minmax(300px,.38fr) minmax(0,1fr) !important;gap:18px !important;}
+        .panel,.chart-card,.table-card{border-color:#dbeafe !important;border-radius:8px !important;box-shadow:none !important;}
+        .formula{border-color:#bfdbfe !important;border-left-color:#2563eb !important;border-radius:8px !important;background:#eff6ff !important;}
+        .btn,.toggle-group button,.secondary-button{border-radius:8px !important;}
+        input,button,td input{font-family:inherit !important;}
+        @media(max-width:1020px){.grid{grid-template-columns:1fr !important;}}
+      </style>
+    `;
+    return rtsSimulatorHtml.replace("</head>", `${overrideStyle}</head>`);
+  }, []);
+
+  return (
+    <section className="content-grid">
+      <article className="panel">
+        <div className="panel-title">
+          <div>
+            <h2>RTS Simulator</h2>
+            <p className="muted">
+              SAFE Model의 Rubric Tuning Score 계산 흐름을 파라미터와 샘플 데이터로 실험할 수 있습니다.
+            </p>
+          </div>
+        </div>
+        <iframe
+          className="rts-simulator-frame"
+          sandbox="allow-scripts"
+          srcDoc={simulatorHtml}
+          title="RTS Simulator"
+        />
       </article>
     </section>
   );

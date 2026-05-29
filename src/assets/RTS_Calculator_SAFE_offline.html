@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rubric Tuning Score 계산기 v2</title>
+<style>
+  :root{
+    --paper:#f4f1ea;--surface:#fbfaf6;--surface-2:#f0ece0;--ink:#1c1c1a;--muted:#75736a;--faint:#a8a499;
+    --line:#ddd7c8;--line-strong:#c9c2af;--gain:#1f7a6d;--gain-soft:#d7ebe6;--penalty:#c2410c;--penalty-soft:#f3ddcd;
+    --neutral:#3f3f46;--accent:#9a3412;--alert:#b91c1c;
+  }
+  *{box-sizing:border-box;} html,body{margin:0;padding:0;}
+  body{background:radial-gradient(circle at 12% 0%, #faf7f0 0%, transparent 55%),radial-gradient(circle at 90% 8%, #efe9da 0%, transparent 45%),var(--paper);color:var(--ink);font-family:'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif;font-weight:300;line-height:1.6;min-height:100vh;padding:36px 28px 80px;}
+  .wrap{max-width:1280px;margin:0 auto;}
+  .num{font-family:'Consolas','Menlo','Noto Sans Mono',monospace;font-variant-numeric:tabular-nums;}
+  header{margin-bottom:30px;border-bottom:1.5px solid var(--ink);padding-bottom:22px;}
+  .eyebrow{font-family:'Consolas','Menlo','Noto Sans Mono',monospace;font-size:11px;letter-spacing:.32em;text-transform:uppercase;color:var(--accent);margin-bottom:10px;}
+  h1{font-family:'Batang','AppleMyungjo',serif;font-weight:700;font-size:clamp(26px,4.6vw,42px);line-height:1.12;margin:0 0 14px;letter-spacing:-.01em;}
+  .formula{font-family:'Consolas','Menlo','Noto Sans Mono',monospace;font-size:12.5px;color:var(--ink);background:var(--surface);border:1px solid var(--line-strong);border-left:3px solid var(--accent);padding:10px 14px;border-radius:3px;display:block;max-width:100%;overflow-x:auto;white-space:nowrap;margin-bottom:7px;}
+  .formula b{color:var(--accent);font-weight:600;} .formula em{color:var(--alert);font-style:normal;font-weight:600;}
+  .grid{display:grid;grid-template-columns:340px 1fr;gap:26px;align-items:start;}
+  @media(max-width:920px){.grid{grid-template-columns:1fr;}}
+  .panel{background:var(--surface);border:1px solid var(--line-strong);border-radius:5px;padding:20px;box-shadow:0 1px 0 #fff inset,0 8px 24px -18px rgba(0,0,0,.4);}
+  .panel-title{font-family:'Batang','AppleMyungjo',serif;font-weight:700;font-size:17px;margin:0 0 4px;}
+  .panel-sub{font-size:12px;color:var(--muted);margin:0 0 18px;}
+  .section{border-top:1px dashed var(--line-strong);margin-top:18px;padding-top:16px;}
+  .section:first-of-type{border-top:none;margin-top:0;padding-top:0;}
+  .sec-label{font-family:'Consolas','Menlo','Noto Sans Mono',monospace;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;}
+  .sec-label.hot{color:var(--alert);}
+  .ctrl{margin-bottom:16px;}
+  .ctrl-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;}
+  .ctrl-name{font-size:13px;font-weight:500;} .ctrl-name .greek{font-family:'Batang','AppleMyungjo',serif;font-style:italic;font-size:15px;}
+  .ctrl-val{font-family:'Consolas','Menlo','Noto Sans Mono',monospace;font-size:13px;font-weight:600;color:var(--accent);}
+  .ctrl-desc{font-size:11px;color:var(--faint);margin-top:3px;}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;background:var(--line-strong);border-radius:3px;outline:none;margin:6px 0 0;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;background:var(--accent);border:2px solid var(--surface);box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer;transition:transform .1s;}
+  input[type=range].hot::-webkit-slider-thumb{background:var(--alert);}
+  input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2);}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid var(--surface);cursor:pointer;}
+  .toggle-group{display:flex;gap:6px;background:var(--surface-2);border:1px solid var(--line-strong);border-radius:4px;padding:3px;}
+  .toggle-group button{flex:1;font-family:'Malgun Gothic','Apple SD Gothic Neo',system-ui;font-size:12px;font-weight:500;padding:7px 4px;border:none;background:transparent;color:var(--muted);border-radius:3px;cursor:pointer;transition:all .15s;}
+  .toggle-group button.on{background:var(--ink);color:var(--paper);}
+  .checkrow{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;margin-bottom:10px;}
+  .switch{position:relative;width:38px;height:20px;background:var(--line-strong);border-radius:20px;cursor:pointer;transition:background .2s;flex-shrink:0;}
+  .switch.on{background:var(--gain);} .switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;background:#fff;border-radius:50%;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.3);} .switch.on::after{left:20px;}
+  .wgrid{display:grid;grid-template-columns:1fr 1fr;gap:7px 10px;}
+  .wcell{display:flex;flex-direction:column;gap:2px;}
+  .wcell label{font-family:'Consolas','Menlo','Noto Sans Mono',monospace;font-size:10.5px;color:var(--muted);display:flex;justify-content:space-between;} .wcell label span{color:var(--accent);}
+  .wcell input{width:100%;font-family:'Consolas','Menlo','Noto Sans Mono',monospace;font-size:12px;padding:5px 7px;border:1px solid var(--line-strong);border-radius:3px;background:var(--surface);color:var(--ink);} .wcell input:focus{outline:none;border-color:var(--accent);}
+  .stack{display:flex;flex-direction:column;gap:22px;}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line-strong);border:1px solid var(--line-strong);border-radius:5px;overflow:hidden;}
+  @media(max-width:560px){.stats{grid-template-columns:repeat(2,1fr);}}
+  .stat{background:var(--surface);padding:14px 16px;}
+  .stat .k{font-size:11px;color:var(--muted);margin-bottom:4px;} .stat .v{font-family:'Consolas','Menlo','Noto Sans Mono',monospace;font-size:21px;font-weight:600;} .stat .v .delta{font-size:12px;margin-left:6px;}
+  .up{color:var(--gain);} .down{color:var(--penalty);}
+  .charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:22px;}
+  .chart-card{background:var(--surface);border:1px solid var(--line-strong);border-radius:5px;padding:16px 18px 12px;}
+  .chart-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:10px;}
+  .chart-title{font-family:'Batang','AppleMyungjo',serif;font-weight:700;font-size:15px;} .chart-note{font-size:11px;color:var(--faint);text-align:right;}
+  svg{display:block;width:100%;height:auto;}
+  .legend{display:flex;gap:14px;font-size:11px;color:var(--muted);margin-top:8px;flex-wrap:wrap;}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle;}
+  .table-card{background:var(--surface);border:1px solid var(--line-strong);border-radius:5px;padding:16px 0 4px;overflow:hidden;}
+  .table-head{display:flex;justify-content:space-between;align-items:center;padding:0 18px 12px;}
+  .table-scroll{overflow-x:auto;}
+  table{border-collapse:collapse;width:100%;font-size:12px;}
+  th,td{padding:7px 8px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line);}
+  th{font-family:'Consolas','Menlo','Noto Sans Mono',monospace;font-size:10px;color:var(--muted);font-weight:500;text-transform:uppercase;position:sticky;top:0;background:var(--surface-2);}
+  th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--surface);z-index:1;}
+  th.grp-sim{color:var(--penalty);} th.grp-ai{color:var(--neutral);}
+  td input{width:46px;font-family:'Consolas','Menlo','Noto Sans Mono',monospace;font-size:12px;text-align:right;padding:4px 5px;border:1px solid transparent;border-radius:3px;background:transparent;color:var(--ink);}
+  td input:hover{border-color:var(--line-strong);} td input:focus{outline:none;border-color:var(--accent);background:#fff;}
+  td.aies{font-family:'Consolas','Menlo','Noto Sans Mono',monospace;background:var(--surface-2);}
+  td.zs,td.rts,td.maxm{font-family:'Consolas','Menlo','Noto Sans Mono',monospace;font-weight:500;}
+  td.rts{font-weight:600;font-size:13px;} td.maxm{font-size:11px;color:var(--neutral);text-align:center;}
+  td.delta{font-family:'Consolas','Menlo','Noto Sans Mono',monospace;font-size:11px;}
+  tr.report:hover td{background:#fdfcf8;} tr.report:hover td:first-child{background:#fdfcf8;}
+  tr.report.flag td:first-child{box-shadow:inset 3px 0 0 var(--alert);}
+  .rm{cursor:pointer;color:var(--faint);font-size:14px;padding:0 2px;border:none;background:none;} .rm:hover{color:var(--penalty);}
+  .btn{font-family:'Malgun Gothic','Apple SD Gothic Neo',system-ui;font-size:12.5px;font-weight:500;padding:7px 14px;border:1px solid var(--line-strong);background:var(--surface);border-radius:4px;cursor:pointer;color:var(--ink);transition:all .15s;} .btn:hover{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  .footnote{font-size:11.5px;color:var(--muted);margin-top:8px;padding:0 18px 12px;line-height:1.7;}
+  .pill{display:inline-block;font-family:'Consolas','Menlo','Noto Sans Mono',monospace;font-size:10px;padding:1px 7px;border-radius:20px;border:1px solid currentColor;}
+  .warn{display:inline-block;font-size:10px;color:var(--alert);margin-left:4px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Rubric Tuning Score · v2 — Risk-Reinforced</div>
+    <h1>품질×유사 상호작용까지 반영한<br>평가점수 보정 모델</h1>
+    <div class="formula">RTS = AIES + <b>ρ</b>·[ max(g,0)·(M−AIES) + min(g,0)·AIES ] ,&nbsp; g = −tanh(<b>k</b>·Z<sub>S</sub>)</div>
+    <div class="formula">Z<sub>S</sub> = Z<sub>sim</sub> + <em>w<sub>A</sub></em>·Z<sub>AIES</sub> + <em>w<sub>int</sub></em>·Ẑ<sub>int</sub> &nbsp;|&nbsp; Z<sub>ai</sub> = (1−<em>θ</em>)·평균 + <em>θ</em>·<em>max</em> &nbsp;|&nbsp; Z<sub>int</sub> = ReLU(Z<sub>AIES</sub>)·ReLU(Z<sub>sim</sub>)</div>
+  </header>
+
+  <div class="grid">
+    <aside class="panel">
+      <div class="panel-title">⚙ 조정 파라미터</div>
+      <p class="panel-sub">슬라이더를 움직이면 모든 리포트의 RTS가 즉시 다시 계산됩니다.</p>
+
+      <div class="section">
+        <div class="sec-label">모델 형태 / Model</div>
+        <div class="ctrl">
+          <div class="ctrl-row"><span class="ctrl-name">보정 방식</span><span class="ctrl-val">잔여여유분 방식</span></div>
+          <div class="ctrl-desc">가점은 천장까지 남은 점수의 일부, 감점은 현재 점수의 일부만 이동 → 항상 [0,M] 유지.</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-label hot">⚠ 위험 신호 강화 / Risk reinforcement</div>
+        <div class="ctrl">
+          <div class="ctrl-row"><span class="ctrl-name"><span class="greek">w</span><sub>int</sub> 품질×유사 상호작용</span><span class="ctrl-val" id="wIntVal">0.50</span></div>
+          <input type="range" class="hot" id="wIntSlider" min="0" max="1" step="0.05" value="0.5">
+          <div class="ctrl-desc">"고품질 + 고유사" 사분면만 추가 감점 (AI생성 의심). 정직한 원본은 건드리지 않음.</div>
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-row"><span class="ctrl-name"><span class="greek">w</span><sub>A</sub> AIES 선형 위험</span><span class="ctrl-val" id="wAVal">0.20</span></div>
+          <input type="range" class="hot" id="wASlider" min="0" max="0.6" step="0.05" value="0.2">
+          <div class="ctrl-desc">고품질 자체를 약한 위험으로. 크게 올리면 정직한 상위권도 깎일 수 있음(주의).</div>
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-row"><span class="ctrl-name"><span class="greek">θ</span> 최유사모델 max 비중</span><span class="ctrl-val" id="thetaVal">0.30</span></div>
+          <input type="range" class="hot" id="thetaSlider" min="0" max="0.6" step="0.05" value="0.3">
+          <div class="ctrl-desc">Z<sub>ai</sub>=(1−θ)·6모델평균 + θ·최강유사모델. 특정 모델 과적합 탐지.</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-label">핵심 계수 / Coefficients</div>
+        <div class="ctrl">
+          <div class="ctrl-row"><span class="ctrl-name"><span class="greek">k</span> 커널 기울기</span><span class="ctrl-val" id="kVal">1.00</span></div>
+          <input type="range" id="kSlider" min="0.1" max="3" step="0.05" value="1">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-row"><span class="ctrl-name"><span class="greek">ρ</span> 최대 조정 비율</span><span class="ctrl-val" id="rhoVal">0.20</span></div>
+          <input type="range" id="rhoSlider" min="0.02" max="0.6" step="0.01" value="0.2">
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-row"><span class="ctrl-name"><span class="greek">λ</span> 표절 vs AI생성</span><span class="ctrl-val" id="lamVal">0.50</span></div>
+          <input type="range" id="lamSlider" min="0" max="1" step="0.05" value="0.5">
+          <div class="ctrl-desc">1=텍스트 유사 중시 · 0=AI생성 유사 중시</div>
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-row"><span class="ctrl-name"><span class="greek">M</span> 만점 척도</span><span class="ctrl-val" id="mVal">100</span></div>
+          <input type="range" id="mSlider" min="10" max="100" step="5" value="100">
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-label">옵션 / Options</div>
+        <div class="checkrow"><span>로짓 변환 (분포 모양 펴기)</span><div class="switch" id="logitSw"></div></div>
+        <div class="checkrow"><span>코호트 재정규화 (평균 보존)</span><div class="switch" id="renormSw"></div></div>
+      </div>
+
+      <div class="section">
+        <div class="sec-label">텍스트 유사 가중 β <span style="color:var(--muted)">(합=1)</span></div>
+        <div class="wgrid" id="betaGrid"></div>
+      </div>
+      <div class="section">
+        <div class="sec-label">AI모델 평균 가중 γ <span style="color:var(--muted)">(합=1)</span></div>
+        <div class="wgrid" id="gammaGrid"></div>
+      </div>
+    </aside>
+
+    <main class="stack">
+      <div class="stats" id="stats"></div>
+
+      <div class="charts">
+        <div class="chart-card">
+          <div class="chart-head"><span class="chart-title">AIES → RTS 이동</span><span class="chart-note">대각선 위=가점 · 아래=감점</span></div>
+          <svg id="scatter" viewBox="0 0 420 360"></svg>
+          <div class="legend"><span><i style="background:var(--gain)"></i>가점</span><span><i style="background:var(--penalty)"></i>감점</span><span><i style="background:var(--faint)"></i>변화 없음</span><span>◎=의심 사분면</span></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head"><span class="chart-title">품질 × 유사 위험 사분면</span><span class="chart-note">w<sub>int</sub> 핵심 로직</span></div>
+          <svg id="quad" viewBox="0 0 420 360"></svg>
+          <div class="legend"><span style="color:var(--alert)">▦ 고품질+고유사 = AI생성 의심</span><span style="color:var(--gain)">▦ 고품질+저유사 = 우수 원본</span></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-head"><span class="chart-title">조정 커널 g(Z<sub>S</sub>)</span><span class="chart-note">−tanh(k·Z<sub>S</sub>)</span></div>
+          <svg id="kernel" viewBox="0 0 320 360"></svg>
+          <div class="legend"><span>x=복합위험 Z<sub>S</sub></span><span>y=보정방향 g</span></div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-head">
+          <span class="chart-title" style="font-size:15px;">리포트 데이터 <span class="pill" style="color:var(--accent)" id="rowCount">8</span></span>
+          <button class="btn" id="addBtn">+ 행 추가</button>
+        </div>
+        <div class="table-scroll">
+          <table id="table">
+            <thead><tr>
+              <th>리포트</th><th>AIES</th>
+              <th class="grp-sim">ST</th><th class="grp-sim">SP</th><th class="grp-sim">PP</th><th class="grp-sim">FP</th>
+              <th class="grp-ai">GPTH</th><th class="grp-ai">GPTL</th><th class="grp-ai">CLDH</th><th class="grp-ai">CLDL</th><th class="grp-ai">GMNH</th><th class="grp-ai">GMNL</th>
+              <th>최유사</th><th>Z<sub>S</sub></th><th>g</th><th style="color:var(--accent)">RTS</th><th>Δ</th><th></th>
+            </tr></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <div class="footnote">
+          <b style="color:var(--alert)">최유사</b> = 6개 모델 중 z-점수가 가장 높은(가장 강하게 닮은) 모델 — θ로 비중 조절. <b style="color:var(--alert)">◎ 의심 사분면</b> = 품질·유사도가 모두 코호트 평균 이상인 리포트(w<sub>int</sub> 적용 대상). 셀을 클릭해 직접 수정하세요.
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+const SIM=['ST','SP','PP','FP'];
+const AI=['GPTH','GPTL','CLDH','CLDL','GMNH','GMNL'];
+let reports=[
+  {name:'R1',AIES:88,ST:12,SP:20,PP:15,FP:30,GPTH:18,GPTL:10,CLDH:22,CLDL:14,GMNH:16,GMNL:9},
+  {name:'R2',AIES:90,ST:65,SP:70,PP:60,FP:55,GPTH:72,GPTL:60,CLDH:68,CLDL:58,GMNH:66,GMNL:62},
+  {name:'R3',AIES:60,ST:10,SP:15,PP:12,FP:25,GPTH:14,GPTL:8,CLDH:18,CLDL:11,GMNH:13,GMNL:7},
+  {name:'R4',AIES:62,ST:80,SP:85,PP:78,FP:70,GPTH:82,GPTL:75,CLDH:80,CLDL:72,GMNH:78,GMNL:74},
+  {name:'R5',AIES:75,ST:40,SP:45,PP:42,FP:50,GPTH:44,GPTL:38,CLDH:46,CLDL:40,GMNH:42,GMNL:39},
+  {name:'R6',AIES:70,ST:25,SP:30,PP:28,FP:35,GPTH:28,GPTL:22,CLDH:30,CLDL:26,GMNH:27,GMNL:24},
+  {name:'R7',AIES:92,ST:30,SP:32,PP:28,FP:36,GPTH:34,GPTL:20,CLDH:88,CLDL:24,GMNH:30,GMNL:22},
+  {name:'R8',AIES:68,ST:35,SP:38,PP:36,FP:44,GPTH:40,GPTL:34,CLDH:42,CLDL:36,GMNH:38,GMNL:35}
+];
+let P={version:'B',k:1,rho:0.2,c:1,lam:0.5,M:100,logit:false,renorm:false,wA:0.2,wInt:0.5,theta:0.3};
+let beta={ST:1,SP:1,PP:1,FP:1};
+let gamma={GPTH:1,GPTL:1,CLDH:1,CLDL:1,GMNH:1,GMNL:1};
+
+const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
+const std=a=>{const m=mean(a);return Math.sqrt(mean(a.map(x=>(x-m)**2)));};
+const clip=(x,lo,hi)=>Math.max(lo,Math.min(hi,x));
+const relu=x=>Math.max(x,0);
+function logit(x,M){const e=1e-3;return Math.log((x+e)/(M-x+e));}
+
+function compute(){
+  const M=P.M;const cols={};
+  ['AIES',...SIM,...AI].forEach(key=>{
+    let vals=reports.map(r=>+r[key]||0);
+    if(P.logit && key!=='AIES') vals=vals.map(v=>logit(clip(v,0,M),M));
+    cols[key]={vals,m:mean(vals),s:std(vals)};
+  });
+  const bSum=SIM.reduce((t,k)=>t+(+beta[k]||0),0)||1;
+  const gSum=AI.reduce((t,k)=>t+(+gamma[k]||0),0)||1;
+  const muA=cols.AIES.m, sgA=cols.AIES.s;
+  const zc=(key,i)=>{const c=cols[key];return c.s>1e-9?(c.vals[i]-c.m)/c.s:0;};
+
+  // pass 1: similarity risk, AIES-z, raw interaction, max-model
+  const tmp=reports.map((r,i)=>{
+    const zA=zc('AIES',i);
+    const Ztext=SIM.reduce((t,k)=>t+(beta[k]/bSum)*zc(k,i),0);
+    const aiZ=AI.map(k=>zc(k,i));
+    const ZaiMean=AI.reduce((t,k,j)=>t+(gamma[k]/gSum)*aiZ[j],0);
+    let mIdx=0;aiZ.forEach((v,j)=>{if(v>aiZ[mIdx])mIdx=j;});
+    const ZaiMax=aiZ[mIdx];
+    const Zai=(1-P.theta)*ZaiMean+P.theta*ZaiMax;
+    const Zsim=P.lam*Ztext+(1-P.lam)*Zai;
+    const rawInt=relu(zA)*relu(Zsim);            // 고품질+고유사 사분면만 양수
+    return {name:r.name,A:+r.AIES||0,zA,Ztext,Zai,Zsim,rawInt,maxModel:AI[mIdx],maxZ:ZaiMax,suspect:rawInt>0};
+  });
+  // standardize interaction → comparable z-units
+  const iv=tmp.map(t=>t.rawInt);const mI=mean(iv),sI=std(iv);
+  tmp.forEach(t=>{t.zInt=sI>1e-9?(t.rawInt-mI)/sI:0;});
+  // pass 2: composite risk → kernel → RTS
+  let out=tmp.map(t=>{
+    const Zs=t.Zsim + P.wA*t.zA + P.wInt*t.zInt;
+    const g=-Math.tanh(P.k*Zs);
+    let rts;
+    if(P.version==='B') rts=t.A+P.rho*(Math.max(g,0)*(M-t.A)+Math.min(g,0)*t.A);
+    return {...t,Zs,g,rts};
+  });
+  if(P.renorm){const ra=out.map(o=>o.rts);const mR=mean(ra),sR=std(ra);out.forEach(o=>{o.rts=sR>1e-9?muA+(o.rts-mR)*(sgA/sR):muA;});}
+  return {out,muA,sgA,M};
+}
+
+function fmt(x,d=1){return x.toFixed(d);}
+function build(){buildWeights('betaGrid',SIM,beta);buildWeights('gammaGrid',AI,gamma);buildTableRows();refresh();}
+function buildWeights(id,keys,obj){
+  const g=document.getElementById(id);g.innerHTML='';
+  keys.forEach(k=>{const c=document.createElement('div');c.className='wcell';
+    c.innerHTML=`<label>${k}<span class="share" data-k="${k}"></span></label><input type="number" step="0.05" min="0" value="${obj[k]}" data-w="${k}">`;g.appendChild(c);});
+  g.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',e=>{obj[e.target.dataset.w]=+e.target.value;refresh();}));
+}
+function buildTableRows(){
+  const tb=document.getElementById('tbody');tb.innerHTML='';
+  reports.forEach((r,i)=>{
+    const tr=document.createElement('tr');tr.className='report';
+    let c=`<td contenteditable="true" class="rname" data-i="${i}">${r.name}</td>`;
+    c+=`<td class="aies"><input type="number" data-i="${i}" data-k="AIES" value="${r.AIES}"></td>`;
+    [...SIM,...AI].forEach(k=>{c+=`<td><input type="number" data-i="${i}" data-k="${k}" value="${r[k]}"></td>`;});
+    c+=`<td class="maxm"></td><td class="zs"></td><td class="g"></td><td class="rts"></td><td class="delta"></td><td><button class="rm" data-i="${i}">✕</button></td>`;
+    tr.innerHTML=c;tb.appendChild(tr);
+  });
+  tb.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',e=>{reports[+e.target.dataset.i][e.target.dataset.k]=+e.target.value;refresh();}));
+  tb.querySelectorAll('.rname').forEach(c=>c.addEventListener('input',e=>{reports[+e.target.dataset.i].name=e.target.textContent;refresh();}));
+  tb.querySelectorAll('.rm').forEach(b=>b.addEventListener('click',e=>{if(reports.length<=2)return;reports.splice(+e.target.dataset.i,1);buildTableRows();refresh();}));
+  document.getElementById('rowCount').textContent=reports.length;
+}
+function refresh(){
+  const {out,muA,sgA,M}=compute();
+  const bSum=SIM.reduce((t,k)=>t+(+beta[k]||0),0)||1, gSum=AI.reduce((t,k)=>t+(+gamma[k]||0),0)||1;
+  document.querySelectorAll('#betaGrid .share').forEach(s=>s.textContent=(beta[s.dataset.k]/bSum).toFixed(2));
+  document.querySelectorAll('#gammaGrid .share').forEach(s=>s.textContent=(gamma[s.dataset.k]/gSum).toFixed(2));
+  const rows=document.querySelectorAll('#tbody tr');
+  out.forEach((o,i)=>{const tr=rows[i];if(!tr)return;
+    tr.classList.toggle('flag',o.suspect);
+    const mm=tr.querySelector('.maxm');mm.textContent=o.maxModel;mm.style.color=o.maxZ>1?'var(--alert)':'var(--neutral)';
+    tr.querySelector('.zs').textContent=fmt(o.Zs,2);
+    tr.querySelector('.g').textContent=fmt(o.g,2);
+    tr.querySelector('.rts').textContent=o.rts.toFixed(1);
+    const d=o.rts-o.A,dc=tr.querySelector('.delta');dc.textContent=(d>=0?'+':'')+d.toFixed(1);
+    dc.className='delta '+(d>0.05?'up':d<-0.05?'down':'');
+    tr.querySelector('.rts').style.color=d>0.05?'var(--gain)':d<-0.05?'var(--penalty)':'var(--ink)';
+  });
+  const ra=out.map(o=>o.rts);const muR=mean(ra),sgR=std(ra),dMu=muR-muA,dSg=sgR-sgA;
+  const nSus=out.filter(o=>o.suspect).length;
+  document.getElementById('stats').innerHTML=`
+    <div class="stat"><div class="k">평균 AIES→RTS</div><div class="v num">${muA.toFixed(1)}→${muR.toFixed(1)}<span class="delta ${dMu>=0?'up':'down'}">${dMu>=0?'+':''}${dMu.toFixed(1)}</span></div></div>
+    <div class="stat"><div class="k">표준편차 σ</div><div class="v num">${sgA.toFixed(1)}→${sgR.toFixed(1)}<span class="delta ${dSg>=0?'up':'down'}">${dSg>=0?'+':''}${dSg.toFixed(1)}</span></div></div>
+    <div class="stat"><div class="k">최대 감점</div><div class="v num down">${Math.min(0,...out.map(o=>o.rts-o.A)).toFixed(1)}</div></div>
+    <div class="stat"><div class="k">의심 사분면</div><div class="v num" style="color:var(--alert)">${nSus}<span style="font-size:12px;color:var(--muted)"> / ${out.length}건</span></div></div>`;
+  drawScatter(out,M);drawQuad(out);drawKernel(out);
+}
+
+function drawScatter(out,M){
+  const W=420,H=360,pad=44,x0=pad,x1=W-14,y0=H-pad,y1=18;
+  const sx=v=>x0+(v/M)*(x1-x0), sy=v=>y0+(v/M)*(y1-y0);
+  let s='';
+  for(let t=0;t<=M;t+=M/5){
+    s+=`<line x1="${sx(t)}" y1="${y0}" x2="${sx(t)}" y2="${y1}" stroke="var(--line)"/>`;
+    s+=`<line x1="${x0}" y1="${sy(t)}" x2="${x1}" y2="${sy(t)}" stroke="var(--line)"/>`;
+    s+=`<text x="${sx(t)}" y="${y0+15}" font-size="9" fill="var(--faint)" text-anchor="middle" font-family="IBM Plex Mono">${t.toFixed(0)}</text>`;
+    s+=`<text x="${x0-6}" y="${sy(t)+3}" font-size="9" fill="var(--faint)" text-anchor="end" font-family="IBM Plex Mono">${t.toFixed(0)}</text>`;}
+  s+=`<line x1="${sx(0)}" y1="${sy(0)}" x2="${sx(M)}" y2="${sy(M)}" stroke="var(--line-strong)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+  s+=`<text x="${(x0+x1)/2}" y="${H-4}" font-size="10" fill="var(--muted)" text-anchor="middle">원 평가점수 AIES</text>`;
+  s+=`<text x="14" y="${(y0+y1)/2}" font-size="10" fill="var(--muted)" text-anchor="middle" transform="rotate(-90 14 ${(y0+y1)/2})">조정 점수 RTS</text>`;
+  out.forEach(o=>{const px=sx(o.A),pa=sy(o.A),py=sy(o.rts),up=o.rts-o.A;
+    const col=up>0.05?'var(--gain)':up<-0.05?'var(--penalty)':'var(--faint)';
+    s+=`<line x1="${px}" y1="${pa}" x2="${px}" y2="${py}" stroke="${col}" stroke-width="1.5" opacity=".5"/>`;
+    s+=`<circle cx="${px}" cy="${pa}" r="2.5" fill="none" stroke="var(--faint)"/>`;
+    if(o.suspect) s+=`<circle cx="${px}" cy="${py}" r="8" fill="none" stroke="var(--alert)" stroke-width="1.3"/>`;
+    s+=`<circle cx="${px}" cy="${py}" r="5" fill="${col}"><title>${o.name}: ${o.A.toFixed(1)}→${o.rts.toFixed(1)} (${up>=0?'+':''}${up.toFixed(1)})</title></circle>`;
+    s+=`<text x="${px+9}" y="${py+3}" font-size="9" fill="var(--ink)" font-family="IBM Plex Mono">${o.name}</text>`;});
+  document.getElementById('scatter').innerHTML=s;
+}
+
+function drawQuad(out){
+  const W=420,H=360,pad=42,x0=pad,x1=W-14,y0=H-pad,y1=18,L=2.6;
+  const sx=z=>x0+((clip(z,-L,L)+L)/(2*L))*(x1-x0);
+  const sy=z=>y0+((clip(z,-L,L)+L)/(2*L))*(y1-y0);
+  const cx=sx(0),cy=sy(0);
+  let s='';
+  // quadrant shading: top-right suspicious, bottom-right ideal
+  s+=`<rect x="${cx}" y="${y1}" width="${x1-cx}" height="${cy-y1}" fill="var(--penalty-soft)" opacity=".6"/>`;
+  s+=`<rect x="${cx}" y="${cy}" width="${x1-cx}" height="${y0-cy}" fill="var(--gain-soft)" opacity=".6"/>`;
+  s+=`<line x1="${cx}" y1="${y1}" x2="${cx}" y2="${y0}" stroke="var(--line-strong)" stroke-width="1.3"/>`;
+  s+=`<line x1="${x0}" y1="${cy}" x2="${x1}" y2="${cy}" stroke="var(--line-strong)" stroke-width="1.3"/>`;
+  s+=`<text x="${x1-4}" y="${y1+13}" font-size="9.5" fill="var(--alert)" text-anchor="end" font-weight="600">의심: AI생성↑</text>`;
+  s+=`<text x="${x1-4}" y="${y0-6}" font-size="9.5" fill="var(--gain)" text-anchor="end" font-weight="600">우수 원본</text>`;
+  s+=`<text x="${x0+4}" y="${y1+13}" font-size="9" fill="var(--muted)">단순참고 의심</text>`;
+  s+=`<text x="${(x0+x1)/2}" y="${H-3}" font-size="10" fill="var(--muted)" text-anchor="middle">품질  Z(AIES)  →</text>`;
+  s+=`<text x="13" y="${(y1+y0)/2}" font-size="10" fill="var(--muted)" text-anchor="middle" transform="rotate(-90 13 ${(y1+y0)/2})">유사 위험  Z_sim  ↑</text>`;
+  out.forEach(o=>{const col=o.suspect?'var(--alert)':(o.zA>0&&o.Zsim<0)?'var(--gain)':'var(--neutral)';
+    if(o.suspect) s+=`<circle cx="${sx(o.zA)}" cy="${sy(o.Zsim)}" r="8.5" fill="none" stroke="var(--alert)" stroke-width="1.2" opacity=".7"/>`;
+    s+=`<circle cx="${sx(o.zA)}" cy="${sy(o.Zsim)}" r="5" fill="${col}" stroke="#fff"><title>${o.name}: Z_AIES=${o.zA.toFixed(2)}, Z_sim=${o.Zsim.toFixed(2)}</title></circle>`;
+    s+=`<text x="${sx(o.zA)+8}" y="${sy(o.Zsim)+3}" font-size="9" fill="var(--ink)" font-family="IBM Plex Mono">${o.name}</text>`;});
+  document.getElementById('quad').innerHTML=s;
+}
+
+function drawKernel(out){
+  const W=320,H=360,pad=38,x0=pad,x1=W-14,yc=H/2,amp=(H-60)/2,Z=3;
+  const sx=z=>x0+((z+Z)/(2*Z))*(x1-x0), sy=g=>yc-g*amp;
+  let s='';
+  s+=`<line x1="${x0}" y1="${sy(0)}" x2="${x1}" y2="${sy(0)}" stroke="var(--line-strong)"/>`;
+  s+=`<line x1="${sx(0)}" y1="${sy(1)}" x2="${sx(0)}" y2="${sy(-1)}" stroke="var(--line-strong)"/>`;
+  s+=`<text x="${x1}" y="${sy(0.9)}" font-size="9" fill="var(--gain)" text-anchor="end">가점 g&gt;0</text>`;
+  s+=`<text x="${x1}" y="${sy(-0.82)}" font-size="9" fill="var(--penalty)" text-anchor="end">감점 g&lt;0</text>`;
+  [1,-1].forEach(gg=>s+=`<text x="${x0-5}" y="${sy(gg)+3}" font-size="9" fill="var(--faint)" text-anchor="end" font-family="IBM Plex Mono">${gg}</text>`);
+  s+=`<text x="${sx(-Z)}" y="${sy(0)+15}" font-size="9" fill="var(--faint)" font-family="IBM Plex Mono">−${Z}</text>`;
+  s+=`<text x="${sx(Z)}" y="${sy(0)+15}" font-size="9" fill="var(--faint)" text-anchor="end" font-family="IBM Plex Mono">+${Z}</text>`;
+  let d='';for(let i=0;i<=120;i++){const z=-Z+2*Z*i/120,g=-Math.tanh(P.k*z);d+=(i?'L':'M')+sx(z).toFixed(1)+' '+sy(g).toFixed(1)+' ';}
+  s+=`<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>`;
+  out.forEach(o=>{const z=clip(o.Zs,-Z,Z),col=o.g>0.05?'var(--gain)':o.g<-0.05?'var(--penalty)':'var(--faint)';
+    if(o.suspect)s+=`<circle cx="${sx(z)}" cy="${sy(o.g)}" r="7.5" fill="none" stroke="var(--alert)" stroke-width="1.2"/>`;
+    s+=`<circle cx="${sx(z)}" cy="${sy(o.g)}" r="4" fill="${col}" stroke="#fff"><title>${o.name}: Z_S=${o.Zs.toFixed(2)}, g=${o.g.toFixed(2)}</title></circle>`;});
+  document.getElementById('kernel').innerHTML=s;
+}
+
+function slider(id,valId,prop,d){const el=document.getElementById(id);el.addEventListener('input',()=>{P[prop]=+el.value;document.getElementById(valId).textContent=(prop==='M')?P.M:(+el.value).toFixed(d);refresh();});}
+slider('kSlider','kVal','k',2);slider('rhoSlider','rhoVal','rho',2);
+slider('lamSlider','lamVal','lam',2);slider('mSlider','mVal','M',0);
+slider('wIntSlider','wIntVal','wInt',2);slider('wASlider','wAVal','wA',2);slider('thetaSlider','thetaVal','theta',2);
+function sw(id,prop){const el=document.getElementById(id);el.addEventListener('click',()=>{P[prop]=!P[prop];el.classList.toggle('on',P[prop]);refresh();});}
+sw('logitSw','logit');sw('renormSw','renorm');
+document.getElementById('addBtn').addEventListener('click',()=>{const n=reports.length+1;
+  reports.push({name:'R'+n,AIES:70,ST:30,SP:35,PP:32,FP:38,GPTH:34,GPTL:28,CLDH:36,CLDL:30,GMNH:33,GMNL:29});buildTableRows();refresh();});
+build();
+</script>
+</body>
+</html>
