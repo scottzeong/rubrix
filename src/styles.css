@@ -319,10 +319,6 @@ h2 {
   gap: 8px;
 }
 
-.submission-row .row-actions .primary-button {
-  display: none;
-}
-
 .backup-panel {
   display: grid;
   gap: 12px;
@@ -1351,8 +1347,9 @@ h2 {
 .safe-formulas code {
   background: #0f172a;
   border-radius: 8px;
-  color: #dbeafe;
+  color: #f8fafc;
   font-size: 13px;
+  font-weight: 700;
   padding: 9px 11px;
 }
 
@@ -1377,11 +1374,12 @@ h2 {
 
 .safe-formula-sections code {
   background: #eff6ff;
-  border: 1px solid #bfdbfe;
+  border: 1px solid #93c5fd;
   border-radius: 8px;
-  color: #1e3a8a;
+  color: #0f172a;
   display: block;
   font-size: 13px;
+  font-weight: 700;
   line-height: 1.5;
   overflow-wrap: anywhere;
   padding: 10px 12px;
