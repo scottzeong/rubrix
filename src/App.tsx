@@ -1352,11 +1352,94 @@ export function App() {
     }
   }
 
-  function finalizeEvaluation(evaluationId: string) {
+  async function finalizeEvaluation(evaluationId: string) {
     const evaluation = evaluations.find((item) => item.id === evaluationId);
+    const submission = submissions.find((item) => item.id === evaluation?.submissionId);
+    let nextFeedback = evaluation?.feedback;
+    let nextStudentReport = evaluation?.studentReport;
+
+    if (evaluation && submission && isLikelyCopiedReport(evaluation.studentReport, submission.reportText)) {
+      const assignment = assignments.find((item) => item.id === submission.assignmentId);
+      const taskType = taskTypes.find((item) => item.id === assignment?.taskType) ?? taskTypes[0];
+      const rubric = rubrics.find((item) => item.id === evaluation.rubricSetId) ?? selectedRubric;
+      const fallbackReport = createStudentReport({
+        assignmentTitle: assignment?.title ?? "제목 없는 과제",
+        taskType,
+        studentName: submission.studentName,
+        totalScore: evaluation.totalScore,
+        categories: rubric.categories.map((categoryItem) => ({
+          name: categoryItem.name,
+          maxScore: categoryItem.maxScore,
+          score: Math.max(1, Math.min(categoryItem.maxScore, Math.round(categoryItem.maxScore * (evaluation.totalScore / 100)))),
+          criteria: categoryItem.criteria.filter((criterionItem) => criterionItem.enabled).map((criterionItem) => criterionItem.name),
+        })),
+      });
+
+      try {
+        const { response, payload } = await fetchJsonWithTimeout(
+          "/api/evaluate",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: aiModel,
+              prompt: [
+                "학생용 평가보고서와 평가자 피드백을 다시 작성하세요.",
+                "이미 부여된 점수는 변경하지 마세요.",
+                "제출 원문 전체나 긴 문단을 그대로 복사하지 마세요.",
+                "리포트에 실제로 있는 내용에 근거해 강점, 보완점, 다음 개선 조언을 학생용 문체로 작성하세요.",
+                "",
+                `고정 점수: ${evaluation.totalScore}`,
+                `학생: ${submission.studentName}`,
+                `과제: ${assignment?.title ?? "제목 없는 과제"}`,
+                `과제 설명: ${assignment?.description ?? ""}`,
+                `과제유형: ${taskType.name}`,
+                `평가세트: ${rubric.name}`,
+                "",
+                "현재 평가자 피드백:",
+                evaluation.feedback,
+                "",
+                "제출 원문:",
+                submission.reportText,
+                "",
+                "반드시 다음 JSON 형식으로만 응답하세요.",
+                "{",
+                `  "total_score": ${evaluation.totalScore},`,
+                '  "feedback": "평가자가 검토할 구체적인 평가 피드백",',
+                '  "student_report": "학생에게 전달할 평가보고서. 원문을 복사하지 말고 학생용 피드백으로 작성하세요."',
+                "}",
+              ].join("\n"),
+            }),
+          },
+          60000
+        );
+
+        if (response.ok) {
+          const regeneratedReport = String(payload.result?.student_report ?? "").trim();
+          nextFeedback = String(payload.result?.feedback ?? evaluation.feedback).trim() || evaluation.feedback;
+          nextStudentReport =
+            regeneratedReport && !isLikelyCopiedReport(regeneratedReport, submission.reportText)
+              ? regeneratedReport
+              : fallbackReport;
+        } else {
+          nextStudentReport = fallbackReport;
+        }
+      } catch {
+        nextStudentReport = fallbackReport;
+      }
+    }
+
     setEvaluations((current) =>
-      current.map((evaluation) =>
-        evaluation.id === evaluationId ? { ...evaluation, status: "finalized", finalizedAt: new Date().toISOString() } : evaluation
+      current.map((item) =>
+        item.id === evaluationId
+          ? {
+              ...item,
+              feedback: nextFeedback ?? item.feedback,
+              studentReport: nextStudentReport ?? item.studentReport,
+              status: "finalized",
+              finalizedAt: new Date().toISOString(),
+            }
+          : item
       )
     );
     addAuditLog("finalize", "evaluation", `평가를 최종 확정했습니다. 점수 ${evaluation?.totalScore ?? "-"}점`, evaluationId);
@@ -3169,7 +3252,7 @@ function Evaluations({
   assignments: Assignment[];
   similarityAnalyses: SimilarityAnalysis[];
   aiGeneratedResults: AiGeneratedResult[];
-  finalizeEvaluation: (evaluationId: string) => void;
+  finalizeEvaluation: (evaluationId: string) => Promise<void>;
   updateEvaluations: React.Dispatch<React.SetStateAction<Evaluation[]>>;
   runRubrixTuning: (assignmentId: string) => void;
   recordEvaluationEdit: (action: string, targetType: string, message: string, targetId?: string) => void;
@@ -3178,6 +3261,7 @@ function Evaluations({
   const [selectedAssignmentFilterId, setSelectedAssignmentFilterId] = useState(assignments[0]?.id ?? "");
   const [selectedEvaluationId, setSelectedEvaluationId] = useState(pendingEvaluations[0]?.id ?? "");
   const [isRunningTuning, setIsRunningTuning] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
   const selectedFilterAssignment =
     assignments.find((assignment) => assignment.id === selectedAssignmentFilterId) ?? assignments[0];
   const filteredPendingEvaluations = pendingEvaluations.filter((evaluation) => {
@@ -3239,6 +3323,16 @@ function Evaluations({
     }
   }
 
+  async function handleFinalizeEvaluation() {
+    if (!selectedEvaluation || isFinalizing) return;
+    setIsFinalizing(true);
+    try {
+      await finalizeEvaluation(selectedEvaluation.id);
+    } finally {
+      setIsFinalizing(false);
+    }
+  }
+
   if (selectedEvaluation) {
     return (
       <section className="reports-layout">
@@ -3284,9 +3378,9 @@ function Evaluations({
                 {isRunningTuning ? <span className="button-spinner" /> : <Sparkles size={16} />}
                 {isRunningTuning ? "처리 중" : "Rubrix Tuning"}
               </button>
-              <button className="secondary-button" onClick={() => finalizeEvaluation(selectedEvaluation.id)}>
-                <CheckCircle2 size={16} />
-                평가완료
+              <button className="secondary-button" disabled={isFinalizing} onClick={handleFinalizeEvaluation}>
+                {isFinalizing ? <span className="button-spinner" /> : <CheckCircle2 size={16} />}
+                {isFinalizing ? "처리 중" : "평가완료"}
               </button>
             </div>
           </div>
@@ -4410,6 +4504,7 @@ function UserManualGuide() {
             <li>RTS 기준점은 항상 AI Normalized Score(AINS)입니다.</li>
             <li>최종조정점수는 AI Normalized Score를 기본값으로 시작하며 평가자가 직접 확정합니다.</li>
             <li>Rubrix Tuning Score는 참고값이며 최종점수를 자동 확정하지 않습니다.</li>
+            <li>학생용 보고서가 제출 원문과 지나치게 유사한 상태에서 다시 평가완료를 누르면 AI가 피드백과 학생용 보고서를 다시 작성합니다.</li>
             <li>`평가완료`를 누르면 결과가 Reports로 이동합니다.</li>
           </ul>
         </article>
@@ -4419,7 +4514,7 @@ function UserManualGuide() {
           <div className="manual-note-grid">
             <div>
               <strong>Reports</strong>
-              <span>최종확정된 평가 결과만 과제별로 확인합니다. 학생용 보고서가 제출 원문과 지나치게 유사하면 점검 안내를 표시합니다.</span>
+              <span>최종확정된 평가 결과만 과제별로 확인합니다. 학생용 보고서가 제출 원문과 지나치게 유사하면 점검 안내를 표시하고, 확정 해제 후 다시 평가완료하면 AI가 보고서를 다시 작성합니다.</span>
             </div>
             <div>
               <strong>데이터 저장</strong>
