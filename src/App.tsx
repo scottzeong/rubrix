@@ -3239,8 +3239,12 @@ function AiGeneratedScore({
                 const modelScore = score?.modelScores.find((item) => item.baselineId === baseline.id);
                 return <ScoreBadge key={baseline.id} score={modelScore?.score} />;
               })}
-              <span className="metric-pill">{score?.perplexity === undefined ? "-" : score.perplexity.toFixed(1)}</span>
-              <span className="metric-pill">{score?.burstiness === undefined ? "-" : `${score.burstiness.toFixed(1)}%`}</span>
+              <span className={`metric-pill ${perplexityTone(score?.perplexity)}`}>
+                {score?.perplexity === undefined ? "-" : score.perplexity.toFixed(1)}
+              </span>
+              <span className={`metric-pill ${burstinessTone(score?.burstiness)}`}>
+                {score?.burstiness === undefined ? "-" : `${score.burstiness.toFixed(1)}%`}
+              </span>
               <div className="model-group-list legacy-model-group-list">
                 {score?.modelScores.length ? (
                   Object.entries(groupModelScores(score.modelScores)).map(([type, modelScores]) => (
@@ -3589,6 +3593,22 @@ function scoreTone(score?: number) {
   if (score <= 40) return "score-blue";
   if (score < 60) return "score-orange";
   return "score-red";
+}
+
+function perplexityTone(value?: number) {
+  if (value === undefined || Number.isNaN(value)) return "score-empty";
+  if (value < 200) return "score-red";
+  if (value < 400) return "score-orange";
+  if (value < 600) return "score-blue";
+  return "score-green";
+}
+
+function burstinessTone(value?: number) {
+  if (value === undefined || Number.isNaN(value)) return "score-empty";
+  if (value < 20) return "score-red";
+  if (value <= 35) return "score-orange";
+  if (value <= 45) return "score-blue";
+  return "score-green";
 }
 
 function ScoreBadge({ score }: { score?: number }) {
@@ -4364,13 +4384,47 @@ function SafeFullFormulaPanel() {
           <code>RTS calculation starts from AINS_i, not from AIES_i.</code>
           <code>Final adjustment score shown to the evaluator can be edited manually.</code>
         </div>
+      </div>
+      <div className="safe-formula-sections writing-signal-sections">
         <div>
-          <h3>10. Perplexity and Burstiness</h3>
-          <code>Approximate Perplexity = exp(H), H = -(1/N) * sum(log(P(w_i)))</code>
-          <code>P(w_i) = (count(w_i) + 1) / (N + V), using add-one smoothing within the submitted report.</code>
+          <h3>Perplexity 정의</h3>
+          <p className="muted">Perplexity는 글의 어휘 패턴이 얼마나 예측 가능한지를 보는 근사 지표입니다.</p>
+          <code>Approximate Perplexity = exp(H)</code>
+          <code>H = -(1/N) * sum(log(P(w_i)))</code>
+          <code>P(w_i) = (count(w_i) + 1) / (N + V)</code>
+        </div>
+        <div>
+          <h3>Perplexity 해석</h3>
+          <p className="muted">
+            Rubrix에서는 200 미만 빨강, 400 미만 주황, 600 미만 파랑, 그 이상 녹색으로 표시합니다.
+            낮은 값은 문체가 더 예측 가능하다는 참고 신호입니다.
+          </p>
+        </div>
+        <div>
+          <h3>Burstiness 정의</h3>
+          <p className="muted">Burstiness는 문장 길이와 리듬의 변동성을 보는 지표입니다.</p>
           <code>Burstiness = sd(sentence_token_lengths) / mean(sentence_token_lengths) * 100</code>
-          <code>Lower approximate Perplexity can indicate more predictable wording; higher Burstiness indicates more varied sentence rhythm.</code>
-          <code>These are writing-pattern signals, not standalone proof of AI use.</code>
+        </div>
+        <div>
+          <h3>Burstiness 해석</h3>
+          <p className="muted">
+            Rubrix에서는 20% 미만 빨강, 35% 이하 주황, 45% 이하 파랑, 그 이상 녹색으로 표시합니다.
+            낮은 값은 문장 길이가 균일하다는 참고 신호입니다.
+          </p>
+        </div>
+        <div>
+          <h3>영어와 한글의 차이</h3>
+          <p className="muted">
+            영어는 공백 기준 단어 반복이 비교적 안정적이지만, 한국어는 조사와 어미가 붙어 같은 개념도 여러 토큰으로
+            나뉠 수 있습니다. 그래서 Rubrix의 Perplexity는 한국어 리포트에서 영어 기준보다 높게 나올 수 있습니다.
+          </p>
+        </div>
+        <div>
+          <h3>사용 원칙</h3>
+          <p className="muted">
+            Perplexity와 Burstiness는 AI 사용의 증거가 아니라 문체 참고 신호입니다. AI Generated Score,
+            Similarity, 루브릭 평가와 함께 검토해야 합니다.
+          </p>
         </div>
       </div>
     </article>

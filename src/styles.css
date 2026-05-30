@@ -1385,6 +1385,10 @@ h2 {
   padding: 10px 12px;
 }
 
+.writing-signal-sections {
+  margin-top: 16px;
+}
+
 .manual-guide {
   display: grid;
   gap: 18px;
@@ -1580,10 +1584,7 @@ h2 {
 }
 
 .metric-pill {
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
   border-radius: 999px;
-  color: #1d4ed8;
   display: inline-flex;
   font-size: 13px;
   font-weight: 900;
