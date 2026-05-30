@@ -164,6 +164,8 @@ type AiGeneratedModelScore = {
 type AiGeneratedSubmissionScore = {
   submissionId: string;
   averageScore: number;
+  perplexity?: number;
+  burstiness?: number;
   modelScores: AiGeneratedModelScore[];
 };
 
@@ -529,6 +531,34 @@ function tokenize(value: string) {
   return normalizeText(value)
     .split(/\s+/)
     .filter((token) => token.length > 1);
+}
+
+function calculateApproximatePerplexity(text: string) {
+  const tokens = tokenize(text);
+  if (tokens.length < 2) return 0;
+  const counts = new Map<string, number>();
+  tokens.forEach((token) => counts.set(token, (counts.get(token) ?? 0) + 1));
+  const vocabularySize = Math.max(1, counts.size);
+  const alpha = 1;
+  const denominator = tokens.length + alpha * vocabularySize;
+  const entropy =
+    tokens.reduce((total, token) => {
+      const probability = ((counts.get(token) ?? 0) + alpha) / denominator;
+      return total - Math.log(probability);
+    }, 0) / tokens.length;
+
+  return Math.round(Math.exp(entropy) * 10) / 10;
+}
+
+function calculateBurstiness(text: string) {
+  const sentenceLengths = splitRawSentences(text)
+    .map((sentence) => tokenize(sentence).length)
+    .filter((length) => length > 0);
+  if (sentenceLengths.length < 2) return 0;
+  const averageLength = mean(sentenceLengths);
+  if (!averageLength) return 0;
+  const coefficientOfVariation = standardDeviation(sentenceLengths) / averageLength;
+  return Math.round(coefficientOfVariation * 1000) / 10;
 }
 
 function splitSentences(value: string) {
@@ -1525,6 +1555,8 @@ export function App() {
         return {
           submissionId: submission.id,
           averageScore,
+          perplexity: calculateApproximatePerplexity(submission.reportText),
+          burstiness: calculateBurstiness(submission.reportText),
           modelScores,
         };
       }),
@@ -3194,6 +3226,8 @@ function AiGeneratedScore({
           {modelColumns.map((baseline) => (
             <span key={baseline.id}>{modelColumnLabel(baseline)}</span>
           ))}
+          <span>Perplexity</span>
+          <span>Burstiness</span>
         </div>
         {assignmentSubmissions.map((submission) => {
           const score = result?.scores.find((item) => item.submissionId === submission.id);
@@ -3205,6 +3239,8 @@ function AiGeneratedScore({
                 const modelScore = score?.modelScores.find((item) => item.baselineId === baseline.id);
                 return <ScoreBadge key={baseline.id} score={modelScore?.score} />;
               })}
+              <span className="metric-pill">{score?.perplexity === undefined ? "-" : score.perplexity.toFixed(1)}</span>
+              <span className="metric-pill">{score?.burstiness === undefined ? "-" : `${score.burstiness.toFixed(1)}%`}</span>
               <div className="model-group-list legacy-model-group-list">
                 {score?.modelScores.length ? (
                   Object.entries(groupModelScores(score.modelScores)).map(([type, modelScores]) => (
@@ -4328,6 +4364,14 @@ function SafeFullFormulaPanel() {
           <code>RTS calculation starts from AINS_i, not from AIES_i.</code>
           <code>Final adjustment score shown to the evaluator can be edited manually.</code>
         </div>
+        <div>
+          <h3>10. Perplexity and Burstiness</h3>
+          <code>Approximate Perplexity = exp(H), H = -(1/N) * sum(log(P(w_i)))</code>
+          <code>P(w_i) = (count(w_i) + 1) / (N + V), using add-one smoothing within the submitted report.</code>
+          <code>Burstiness = sd(sentence_token_lengths) / mean(sentence_token_lengths) * 100</code>
+          <code>Lower approximate Perplexity can indicate more predictable wording; higher Burstiness indicates more varied sentence rhythm.</code>
+          <code>These are writing-pattern signals, not standalone proof of AI use.</code>
+        </div>
       </div>
     </article>
   );
@@ -4472,6 +4516,7 @@ function UserManualGuide() {
           <ul className="safe-bullets">
             <li>과제를 선택한 뒤 `AI 진단 실행`을 누르면 제출물 전체를 일괄 비교합니다.</li>
             <li>평균과 최대 6개 모델별 점수를 확인할 수 있습니다.</li>
+            <li>마지막 두 칼럼에는 근사 Perplexity와 Burstiness가 표시되며, 이는 AI 작성 여부를 단정하지 않는 문체 참고 신호입니다.</li>
             <li>점수 색상은 낮음, 보통, 주의, 높음의 위험 정도를 빠르게 구분하는 데 사용합니다.</li>
           </ul>
         </article>

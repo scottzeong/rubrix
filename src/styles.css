@@ -1552,7 +1552,7 @@ h2 {
   align-items: center;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(120px, 1fr) minmax(74px, 0.5fr) repeat(6, minmax(82px, 0.7fr));
+  grid-template-columns: minmax(120px, 1fr) minmax(74px, 0.5fr) repeat(6, minmax(82px, 0.7fr)) repeat(2, minmax(92px, 0.7fr));
 }
 
 .ai-score-head {
@@ -1575,8 +1575,20 @@ h2 {
   font-size: 20px;
 }
 
-.ai-score-row > span:not(.score-badge) {
+.ai-score-row > span:not(.score-badge):not(.metric-pill) {
   display: none;
+}
+
+.metric-pill {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  color: #1d4ed8;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 900;
+  justify-content: center;
+  padding: 6px 10px;
 }
 
 .ai-score-model-head {
