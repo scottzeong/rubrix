@@ -1717,6 +1717,10 @@ h2 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.writing-signal-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .evaluation-score-row div,
 .rubrix-tuning-box {
   background: #f8fafc;
@@ -1744,6 +1748,13 @@ h2 {
 .rubrix-tuning-box strong {
   color: #0f172a;
   font-size: 20px;
+}
+
+.evaluation-score-row .metric-pill {
+  display: inline-flex;
+  font-size: 16px;
+  margin-top: 2px;
+  min-width: 96px;
 }
 
 .legacy-evaluation-score-strip,

@@ -3430,6 +3430,20 @@ function Evaluations({
             <div><span>AI Generated</span><ScoreBadge score={aiGeneratedScore?.averageScore} /></div>
             <div><span>Analysis 종합</span><ScoreBadge score={similaritySummary?.score} /></div>
           </div>
+          <div className="evaluation-score-row writing-signal-row">
+            <div>
+              <span>Perplexity</span>
+              <strong className={`metric-pill ${perplexityTone(aiGeneratedScore?.perplexity)}`}>
+                {aiGeneratedScore?.perplexity === undefined ? "-" : aiGeneratedScore.perplexity.toFixed(1)}
+              </strong>
+            </div>
+            <div>
+              <span>Burstiness</span>
+              <strong className={`metric-pill ${burstinessTone(aiGeneratedScore?.burstiness)}`}>
+                {aiGeneratedScore?.burstiness === undefined ? "-" : `${aiGeneratedScore.burstiness.toFixed(1)}%`}
+              </strong>
+            </div>
+          </div>
           <div className="evaluation-score-row similarity-score-row">
             <div><span>문장일치</span><ScoreBadge score={similaritySummary?.exactScore} /></div>
             <div><span>문장유사</span><ScoreBadge score={similaritySummary?.sentenceScore} /></div>
