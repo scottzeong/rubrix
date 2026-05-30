@@ -163,7 +163,7 @@ function supabaseEndpoint() {
   return `${baseUrl}/rest/v1/app_state`;
 }
 
-function fetchWithTimeout(url, options = {}, timeoutMs = 3500) {
+function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
   return Promise.race([
     fetch(url, options),
     new Promise((_, reject) =>

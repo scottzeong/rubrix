@@ -325,6 +325,13 @@ function alignRubrixTuningToAins(evaluations: Evaluation[]) {
   });
 }
 
+function compactEvaluationsForStorage(evaluations: Evaluation[]) {
+  return evaluations.map((evaluation) => ({
+    ...evaluation,
+    prompt: evaluation.prompt ? "[compact] Evaluation prompt omitted from storage to keep saves stable." : "",
+  }));
+}
+
 const initialTaskTypes: TaskType[] = [
   {
     id: "literature-review",
@@ -858,7 +865,7 @@ export function App() {
       assignments,
       taskTypes,
       submissions,
-      evaluations,
+      evaluations: compactEvaluationsForStorage(evaluations),
       similarityAnalyses,
       aiBaselines,
       aiGeneratedResults,
@@ -944,13 +951,17 @@ export function App() {
 
     const timeoutId = window.setTimeout(async () => {
       try {
-        const { response, payload } = await fetchJsonWithTimeout("/api/state", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            data: serverAppState,
-          }),
-        });
+        const { response, payload } = await fetchJsonWithTimeout(
+          "/api/state",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              data: serverAppState,
+            }),
+          },
+          25000
+        );
 
         if (!response.ok) {
           throw new Error(payload.error || "데이터 저장에 실패했습니다.");
@@ -995,7 +1006,7 @@ export function App() {
       assignments,
       taskTypes,
       submissions,
-      evaluations,
+      evaluations: compactEvaluationsForStorage(evaluations),
       similarityAnalyses,
       aiBaselines,
       aiGeneratedResults,
