@@ -960,7 +960,7 @@ export function App() {
               data: serverAppState,
             }),
           },
-          25000
+          60000
         );
 
         if (!response.ok) {
